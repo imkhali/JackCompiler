@@ -3,6 +3,7 @@ import re
 import sys
 from typing import NamedTuple
 import logging
+import enum
 
 IN_FILE_EXT = '.jack'
 OUT_FILE_EXT = '_test.xml'
@@ -74,6 +75,7 @@ class Token(NamedTuple):
     line_number: int
 
 
+# Module 2: JackTokenizer
 class JackTokenizer:
     # Note, order of these specifications matter
     tokens_specifications = {
@@ -124,6 +126,8 @@ class JackTokenizer:
             yield Token(token_type, token_value, line_number)
 
 
+# TODO: change to output the vm code (no more xml)
+# Module 5: CompilationEngine
 class CompilationEngine:
     special_xml = {
         LESS_THAN: '&lt;',
@@ -381,6 +385,7 @@ class CompilationEngine:
 
     def compile_var_dec(self):
         """compile jack variable declaration, varDec*, only called if current token is var
+        add the variable to symbol table
         """
         # <varDec>
         self._write_open_tag('varDec')
@@ -591,7 +596,20 @@ class CompilationEngine:
         """
         compile jack expression
         """
-
+        """
+        if exp is a number n:
+            output "push n"
+        if exp is a variable var:
+            output "push var"
+        if exp is "exp1 op exp2":
+            codeWrite(exp1)
+            codeWrite(exp2)
+            output "op"
+        if exp is "f(exp1, exp2, ...)":
+            codeWrite(exp1),
+            codeWrite(exp2),...,
+            output "call f"
+        """
         # <expression>
         self._write_open_tag('expression')
         self.reindent()
@@ -688,6 +706,128 @@ class CompilationEngine:
         self._write_close_tag('expressionList')
 
 
+# TODO: implement
+# Module 4: VMWriter, generates VM code
+class VMWriter:
+
+    # in java sense, should initialize the .vm file object
+    def __init__(self, out_stream):
+        self.out_stream = out_stream
+
+    # write a vm push command
+    def write_push(self, segment, index):
+        pass
+
+    # write a vm pop command
+    def write_pop(self, segment, index):
+        pass
+
+    # write a vm arithmetic-logical command
+    def write_arithmetic(self, vm_command):
+        pass
+
+    # writes a vm label command
+    def write_label(self, string):
+        pass
+
+    # writes a vm goto command
+    def write_goto(self, string):
+        pass
+
+    # writes a vm if-goto command
+    def write_if_goto(self, string):
+        pass
+
+    # writes a vm call command
+    def write_call(self, name: str, n_args: int):
+        pass
+
+    # write a vm function
+    def write_function(self, name: str, n_locals: int):
+        pass
+
+    # writes a vm return command
+    def write_return(self):
+        pass
+
+    # closes the output file
+    def close(self):
+        pass
+
+
+# TODO: implement
+# Module 3: Symbol Table, we need 2: class-level and subroutine-level
+""" Symbol tables
+name    type    kind        #
+x       int     field       0
+y       int     field       1
+"""
+
+
+# helper enums
+class JType(enum.Enum):
+    JInt = 1
+    JChar = 2
+    JBoolean = 3
+    JCustom = 4  # class name
+
+
+class JVarKind(enum.Enum):
+    field = 1
+    static = 2
+    local = 3
+    argument = 4
+
+
+# class JVarScope(enum.Enum):
+#     class_level = 1
+#     subroutine_level = 2
+
+
+class JVariable(NamedTuple):
+    name: str
+    type: JType
+    kind: JVarKind
+    index: int
+
+    def __eq__(self, o: object) -> bool:
+        if not isinstance(o, JVariable):
+            return False
+        return self.name == o.name and self.type == o.type and self.kind == o.kind
+
+
+class SymbolTable:
+    def __init__(self):
+        _class_level_data = []
+        _subroutine_data = []
+
+    # starts a new subroutine scope
+    def start_subroutine(self):
+        pass
+
+    # defines a new identifier of given parameters and assign it a running index
+    def define(self, name: str, _type: JType, kind: JVarKind):
+        pass
+
+    # return the number of variables of the given kind
+    def var_count(self, kind: JVarKind):
+        pass
+
+    # return the kind of the identifier var
+    def kind_of(self, var: str):
+        pass
+
+    # return the type of the identifier var
+    def type_of(self, var: str):
+        pass
+
+    # return the index of the identifier var
+    def index_of(self, var: str):
+        pass
+
+
+# TODO: adjust to output vm files (maybe keep xml too)
+# Module 1: Jack compiler (ui)
 def handle_file(path):
     logging.info(f'Parsing {path}')
     out_file_path = path.replace(IN_FILE_EXT, OUT_FILE_EXT)
@@ -696,6 +836,7 @@ def handle_file(path):
             tokens_stream = JackTokenizer(inFileStream.read()).start_tokenizer()
             compilation_engine = CompilationEngine(tokens_stream, outFileStream)
             compilation_engine.compile_class()
+    logging.info(f'generated {out_file_path}')
 
 
 def handle_dir(path):
