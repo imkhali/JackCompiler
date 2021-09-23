@@ -69,6 +69,14 @@ class ParseException(Exception):
     pass
 
 
+class JackException(Exception):
+    pass
+
+
+class JVarNotFound(JackException):
+    pass
+
+
 class Token(NamedTuple):
     type: str
     value: str
@@ -798,32 +806,84 @@ class JVariable(NamedTuple):
 
 class SymbolTable:
     def __init__(self):
-        _class_level_data = []
-        _subroutine_data = []
+        self._class_level_data = []
+        self._subroutine_data = []
 
     # starts a new subroutine scope
     def start_subroutine(self):
-        pass
+        self._subroutine_data = []
 
     # defines a new identifier of given parameters and assign it a running index
     def define(self, name: str, _type: JType, kind: JVarKind):
-        pass
+        if kind is JVarKind.field or kind is JVarKind.static:
+            j_var = JVariable(name, _type, kind, len(self._class_level_data))
+            self._class_level_data.append(j_var)
+        if kind is JVarKind.local or kind is JVarKind.argument:
+            j_var = JVariable(name, _type, kind, len(self._subroutine_data))
+            self._subroutine_data.append(j_var)
 
-    # return the number of variables of the given kind
     def var_count(self, kind: JVarKind):
-        pass
+        """
+        return the number of variables of the given kind
+        :param kind: kind of jack variable
+        :return: number of variables of kind in symbol table
+        """
+        count = 0
+        if kind is JVarKind.field or kind is JVarKind.static:
+            for var in self._class_level_data:
+                if kind is var.kind:
+                    count += 1
+            return count
+        if kind is JVarKind.local or kind is JVarKind.argument:
+            for var in self._subroutine_data:
+                if kind is var.kind:
+                    count += 1
+            return count
 
-    # return the kind of the identifier var
     def kind_of(self, var: str):
-        pass
+        """
+        return the jack kind of the identifier var
+        :param var: the identifier or variable to look for
+        :return: kind of var
+        """
+        for sub_var in self._subroutine_data:
+            if var == sub_var.name:
+                return sub_var.kind
+        for class_var in self._class_level_data:
+            if var == class_var.name:
+                return class_var.kind
 
-    # return the type of the identifier var
+        raise JVarNotFound(f"{var} is not defined!")
+
     def type_of(self, var: str):
-        pass
+        """
+        return the jack type of the identifier var
+        :param var: the identifier or variable to look for
+        :return: type of var
+        """
+        for sub_var in self._subroutine_data:
+            if var == sub_var.name:
+                return sub_var.type
+        for class_var in self._class_level_data:
+            if var == class_var.name:
+                return class_var.type
 
-    # return the index of the identifier var
+        raise JVarNotFound(f"{var} is not defined!")
+
     def index_of(self, var: str):
-        pass
+        """
+        return the index of the identifier var
+        :param var: the identifier or variable to look for
+        :return:
+        """
+        for sub_var in self._subroutine_data:
+            if var == sub_var.name:
+                return sub_var.index
+        for class_var in self._class_level_data:
+            if var == class_var.name:
+                return class_var.index
+
+        raise JVarNotFound(f"{var} is not defined!")
 
 
 # TODO: adjust to output vm files (maybe keep xml too)
