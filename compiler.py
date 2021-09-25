@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import sys
-from typing import NamedTuple
+from typing import NamedTuple, TextIO
 
 from lexicals import *
 
@@ -61,6 +61,10 @@ class JackTokenizer:
     def __init__(self, in_stream):
         self.in_stream = in_stream
 
+    @property
+    def base_name(self):
+        return os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
+
     def start_tokenizer(self):
         line_number = 0
         for m in self.jack_token.finditer(self.in_stream.read()):
@@ -81,8 +85,12 @@ class JackTokenizer:
 
 # Module 4: VMWriter, generates VM code
 class Writer:
-    def __init__(self, out_stream):
+    def __init__(self, out_stream: TextIO):
         self.out_stream = out_stream
+
+    @property
+    def base_name(self):
+        return os.path.split(self.out_stream.name)[-1].rpartition('.')[0]
 
 
 class XMLWriter(Writer):

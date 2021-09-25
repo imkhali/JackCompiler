@@ -42,5 +42,13 @@ class SymbolTableTest(unittest.TestCase):
         self.assertEqual(table.index_of(var), 0)
 
 
+class WriterTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.writer = Writer(open('..\\bar.baz.vm', 'w'))
+
+    def test_base_name(self):
+        self.assertEqual(self.writer.base_name, 'bar.baz')
+
+
 if __name__ == '__main__':
     unittest.main()
