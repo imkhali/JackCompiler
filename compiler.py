@@ -1,12 +1,14 @@
+import enum
+import logging
 import os
 import re
 import sys
 from typing import NamedTuple
-import logging
-import enum
 
-IN_FILE_EXT = '.jack'
-OUT_FILE_EXT = '_test.xml'
+SRC_FILE_EXT = '.jack'
+XML_FILE_EXT = '_test.xml'
+VM_FILE_EXT = '_test.vm'
+
 NEWLINE = '\n'
 INDENT_NUM_SPACES = 2
 # Jack Lexical elements
@@ -140,15 +142,17 @@ class CompilationEngine:
         DOUBLE_QUOTES: '&quot;'
     }
 
-    def __init__(self, tokens_stream, out_stream):
-        """ initialize the compilation engine which parses tokens from tokensStream and write in outFileStream
+    def __init__(self, tokens_stream, out_xml_stream, out_vm_stream):
+        """ initialize the compilation engine which parses tokens from tokensStream and write in xmlFileStream
         INVARIANT: current_token is the token we are handling now given _eat() is last to run in handling it
         Args:
             tokens_stream (Generator): Generator of jack tokens
-            out_stream (stream): file to write parsed jack code into
+            out_xml_stream (stream): file to write xml of the parsed code
+            out_vm_stream (stream): file to write the compiled vm code
         """
         self.tokens_stream = tokens_stream
-        self.out_stream = out_stream
+        self.out_xml_stream = out_xml_stream
+        self.out_vm_stream = out_vm_stream
         self.current_token = None
         self.indent_level = 0
 
@@ -167,14 +171,14 @@ class CompilationEngine:
         self.indent_level -= indent
 
     def _write_tag_value(self, tag, value):
-        """writes xml tagged jack token to outFileStream
+        """writes xml tagged jack token to xmlFileStream
         Args:
             tag (str): type of token
             value (str | integer): value of token
         """
         value = self.special_xml.get(value, value)
         indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_stream.write(f'{indent}<{tag}> {value} </{tag}>{NEWLINE}')
+        self.out_xml_stream.write(f'{indent}<{tag}> {value} </{tag}>{NEWLINE}')
 
     def _write_open_tag(self, tag):
         """writes xml open tag with given tag
@@ -182,7 +186,7 @@ class CompilationEngine:
             tag (str): xml tag
         """
         indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_stream.write(f'{indent}<{tag}>{NEWLINE}')
+        self.out_xml_stream.write(f'{indent}<{tag}>{NEWLINE}')
 
     def _write_close_tag(self, tag):
         """writes xml close tag with given tag
@@ -190,7 +194,7 @@ class CompilationEngine:
             tag (str): xml tag
         """
         indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_stream.write(f'{indent}</{tag}>{NEWLINE}')
+        self.out_xml_stream.write(f'{indent}</{tag}>{NEWLINE}')
 
     def _eat(self, s):
         """advance to next token if given string is same as the current token, otherwise raise error
@@ -886,18 +890,21 @@ class SymbolTable:
 # Module 1: Jack compiler (ui)
 def handle_file(path):
     logging.info(f'Parsing {path}')
-    out_file_path = path.replace(IN_FILE_EXT, OUT_FILE_EXT)
-    with open(path) as inFileStream:
-        with open(out_file_path, 'w') as outFileStream:
-            tokens_stream = JackTokenizer(inFileStream.read()).start_tokenizer()
-            compilation_engine = CompilationEngine(tokens_stream, outFileStream)
-            compilation_engine.compile_class()
-    logging.info(f'generated {out_file_path}')
+    out_xml_path = path.replace(SRC_FILE_EXT, XML_FILE_EXT)
+    out_vm_path = path.replace(SRC_FILE_EXT, VM_FILE_EXT)
+    with open(path) as inFileStream, \
+            open(out_xml_path, 'w') as xml_stream, \
+            open(out_vm_path, 'w') as vm_stream:
+        tokens_stream = JackTokenizer(inFileStream.read()).start_tokenizer()
+        compilation_engine = CompilationEngine(tokens_stream, xml_stream, vm_stream)
+        compilation_engine.compile_class()
+    logging.info(f'generated {out_xml_path}')
+    logging.info(f'generated {out_vm_path}')
 
 
 def handle_dir(path):
     for f in os.listdir(path):
-        if f.endswith(IN_FILE_EXT):
+        if f.endswith(SRC_FILE_EXT):
             handle_file(os.path.join(path, f))
 
 
