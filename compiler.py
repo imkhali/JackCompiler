@@ -5,66 +5,13 @@ import re
 import sys
 from typing import NamedTuple
 
+from lexicals import *
+
 SRC_FILE_EXT = '.jack'
 XML_FILE_EXT = '_test.xml'
 VM_FILE_EXT = '_test.vm'
-
 NEWLINE = '\n'
 INDENT_NUM_SPACES = 2
-# Jack Lexical elements
-# keywords
-CLASS = 'class'
-CONSTRUCTOR = 'constructor'
-FUNCTION = 'function'
-METHOD = 'method'
-FIELD = 'field'
-STATIC = 'static'
-VAR = 'var'
-INT = 'int'
-CHAR = 'char'
-BOOLEAN = 'boolean'
-VOID = 'void'
-TRUE = 'true'
-FALSE = 'false'
-NULL = 'null'
-THIS = 'this'
-LET = 'let'
-DO = 'do'
-IF = 'if'
-ELSE = 'else'
-WHILE = 'while'
-RETURN = 'return'
-# Symbols
-LEFT_BRACE = '{'
-RIGHT_BRACE = '}'
-LEFT_PAREN = '('
-RIGHT_PAREN = ')'
-LEFT_BRACKET = '['
-RIGHT_BRACKET = ']'
-DOT = '.'
-COMMA = ','
-SEMI_COLON = ';'
-PLUS = '+'
-MINUS = '-'
-ASTERISK = '*'
-FORWARD_SLASH = '/'
-AMPERSAND = '&'
-PIPE = '|'
-LESS_THAN = '<'
-GREATER_THAN = '>'
-EQUAL_SIGN = '='
-TILDE = '~'
-# other constants
-DOUBLE_QUOTES = '"'
-INT_CONSTANT = 'integerConstant'
-STR_CONSTANT = 'stringConstant'
-IDENTIFIER = 'identifier'
-KEYWORD = 'keyword'
-SYMBOL = 'symbol'
-
-UNARY_OP = {MINUS, TILDE}   # faster for in operator
-OP = {PLUS, MINUS, ASTERISK, FORWARD_SLASH, AMPERSAND, PIPE, LESS_THAN, GREATER_THAN, EQUAL_SIGN}
-KEYWORD_CONSTANT = {TRUE, FALSE, NULL, THIS}
 
 
 class ParseException(Exception):
@@ -718,47 +665,43 @@ class CompilationEngine:
 # Module 4: VMWriter, generates VM code
 class VMWriter:
 
-    # in java sense, should initialize the .vm file object
     def __init__(self, out_stream):
         self.out_stream = out_stream
 
-    # write a vm push command
     def write_push(self, segment, index):
-        pass
+        self.out_stream.write(f"push {segment} {index}{NEWLINE}")
 
-    # write a vm pop command
     def write_pop(self, segment, index):
-        pass
+        self.out_stream.write(f"pop {segment} {index}{NEWLINE}")
 
-    # write a vm arithmetic-logical command
     def write_arithmetic(self, vm_command):
-        pass
+        self.out_stream.write(f"{vm_command}{NEWLINE}")
 
     # writes a vm label command
-    def write_label(self, string):
-        pass
+    def write_label(self, label):
+        self.out_stream.write(f"label {label}{NEWLINE}")
 
     # writes a vm goto command
-    def write_goto(self, string):
-        pass
+    def write_goto(self, label):
+        self.out_stream.write(f"goto {label}{NEWLINE}")
 
     # writes a vm if-goto command
-    def write_if_goto(self, string):
-        pass
+    def write_if_goto(self, label):
+        self.out_stream.write(f"if-goto {label}{NEWLINE}")
 
     # writes a vm call command
     def write_call(self, name: str, n_args: int):
-        pass
+        self.out_stream.write(f"call {name} {n_args}{NEWLINE}")
 
     # write a vm function
     def write_function(self, name: str, n_locals: int):
-        pass
+        self.out_stream.write(f"function {name} {n_locals}{NEWLINE}")
 
     # writes a vm return command
     def write_return(self):
-        pass
+        self.out_stream.write(f"return{NEWLINE}")
 
-    # closes the output file
+    # closes the output file, I guess not needed here, it is java-style
     def close(self):
         pass
 
