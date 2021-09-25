@@ -31,17 +31,17 @@ class Token(NamedTuple):
 # Module 2: JackTokenizer
 class JackTokenizer:
     # Note, order of these specifications matter
+    KEYWORDS = {
+        'class', 'constructor', 'function',
+        'method', 'field', 'static', 'var', 'int',
+        'char', 'boolean', 'void', 'true', 'false',
+        'null', 'this', 'let', 'do', 'if', 'else',
+        'while', 'return'
+    }
     tokens_specifications = {
         'comment': r'//.*|/\*([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+/',
         'space': r'[ \t]+',
         'newline': r'\n',
-        KEYWORD: '|'.join([
-            'class', 'constructor', 'function',
-            'method', 'field', 'static', 'var', 'int',
-            'char', 'boolean', 'void', 'true', 'false',
-            'null', 'this', 'let', 'do', 'if', 'else',
-            'while', 'return'
-        ]),
         SYMBOL: '|'.join([
             r'\{', r'\}', r'\(', r'\)', r'\[', r'\]', r'\.',
             r'\,', r'\;', r'\+', r'\-', r'\*', r'\/', r'\&',
@@ -62,7 +62,7 @@ class JackTokenizer:
         self.in_stream = in_stream
 
     @property
-    def base_name(self):
+    def src_base_name(self):
         return os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
 
     def start_tokenizer(self):
@@ -72,6 +72,8 @@ class JackTokenizer:
             token_value = m.group(token_type)
             if token_type == 'integerConstant':
                 token_value = int(token_value)
+            elif token_type == IDENTIFIER and token_value in self.KEYWORDS:
+                token_type = KEYWORD
             elif token_type == 'newline':
                 line_number += 1
                 continue
@@ -192,6 +194,7 @@ class CompilationEngine:
         self.tokens_stream = jack_tokenizer.start_tokenizer()
         self.xml_stream = xml_stream
         self.vm_stream = vm_stream
+        self.symbol_table = SymbolTable()
         self.current_token = None
 
     @property
@@ -240,6 +243,10 @@ class CompilationEngine:
 
         # className
         self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
+        try:
+            assert self.current_token_value == self.jack_tokenizer.src_base_name
+        except AssertionError:
+            raise CompileException(f"class {self.current_token_value} should be declared in its own file")
         self._eat(IDENTIFIER)
 
         # {
