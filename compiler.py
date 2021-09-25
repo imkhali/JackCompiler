@@ -69,11 +69,7 @@ class ParseException(Exception):
     pass
 
 
-class JackException(Exception):
-    pass
-
-
-class JVarNotFound(JackException):
+class CompileException(Exception):
     pass
 
 
@@ -853,7 +849,7 @@ class SymbolTable:
             if var == class_var.name:
                 return class_var.kind
 
-        raise JVarNotFound(f"{var} is not defined!")
+        raise CompileException(f"{var} is not defined!")
 
     def type_of(self, var: str):
         """
@@ -868,7 +864,7 @@ class SymbolTable:
             if var == class_var.name:
                 return class_var.type
 
-        raise JVarNotFound(f"{var} is not defined!")
+        raise CompileException(f"{var} is not defined!")
 
     def index_of(self, var: str):
         """
@@ -883,7 +879,7 @@ class SymbolTable:
             if var == class_var.name:
                 return class_var.index
 
-        raise JVarNotFound(f"{var} is not defined!")
+        raise CompileException(f"{var} is not defined!")
 
 
 # TODO: adjust to output vm files (maybe keep xml too)
