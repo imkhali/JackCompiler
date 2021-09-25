@@ -63,7 +63,7 @@ class JackTokenizer:
 
     def start_tokenizer(self):
         line_number = 0
-        for m in self.jack_token.finditer(self.in_stream):
+        for m in self.jack_token.finditer(self.in_stream.read()):
             token_type = m.lastgroup
             token_value = m.group(token_type)
             if token_type == 'integerConstant':
@@ -79,18 +79,109 @@ class JackTokenizer:
             yield Token(token_type, token_value, line_number)
 
 
+# Module 4: VMWriter, generates VM code
+class Writer:
+    def __init__(self, out_stream):
+        self.out_stream = out_stream
+
+
+class XMLWriter(Writer):
+    special_xml = {
+        LESS_THAN: '&lt;',
+        GREATER_THAN: '&gt;',
+        AMPERSAND: '&amp;',
+        DOUBLE_QUOTES: '&quot;'
+    }
+
+    def __init__(self, out_stream):
+        super().__init__(out_stream)
+        self.indent_level = 0
+
+    def reindent(self, indent=1):
+        self.indent_level += indent
+
+    def deindent(self, indent=1):
+        self.indent_level -= indent
+
+    def write_tag_value(self, tag, value):
+        """writes xml tagged jack token to xmlFileStream
+        Args:
+            tag (str): type of token
+            value (str | integer): value of token
+        """
+        value = self.special_xml.get(value, value)
+        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
+        self.out_stream.write(f'{indent}<{tag}> {value} </{tag}>{NEWLINE}')
+
+    def write_open_tag(self, tag):
+        """writes xml open tag with given tag
+        Args:
+            tag (str): xml tag
+        """
+        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
+        self.out_stream.write(f'{indent}<{tag}>{NEWLINE}')
+
+    def write_close_tag(self, tag):
+        """writes xml close tag with given tag
+        Args:
+            tag (str): xml tag
+        """
+        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
+        self.out_stream.write(f'{indent}</{tag}>{NEWLINE}')
+
+
+class VMWriter(Writer):
+    def write_push(self, segment, index):
+        self.out_stream.write(f"push {segment} {index}{NEWLINE}")
+
+    def write_pop(self, segment, index):
+        self.out_stream.write(f"pop {segment} {index}{NEWLINE}")
+
+    def write_arithmetic(self, vm_command):
+        self.out_stream.write(f"{vm_command}{NEWLINE}")
+
+    # writes a vm label command
+    def write_label(self, label):
+        self.out_stream.write(f"label {label}{NEWLINE}")
+
+    # writes a vm goto command
+    def write_goto(self, label):
+        self.out_stream.write(f"goto {label}{NEWLINE}")
+
+    # writes a vm if-goto command
+    def write_if_goto(self, label):
+        self.out_stream.write(f"if-goto {label}{NEWLINE}")
+
+    # writes a vm call command
+    def write_call(self, name: str, n_args: int):
+        self.out_stream.write(f"call {name} {n_args}{NEWLINE}")
+
+    # write a vm function
+    def write_function(self, name: str, n_locals: int):
+        self.out_stream.write(f"function {name} {n_locals}{NEWLINE}")
+
+    # writes a vm return command
+    def write_return(self):
+        self.out_stream.write(f"return{NEWLINE}")
+
+    # closes the output file, I guess not needed here, it is java-style
+    def close(self):
+        pass
+
+
 # TODO: change to output the vm code (no more xml)
 # Module 5: CompilationEngine
 class CompilationEngine:
-    def __init__(self, tokens_stream, xml_stream, vm_stream):
+    def __init__(self, jack_tokenizer: JackTokenizer, xml_stream: XMLWriter, vm_stream: VMWriter):
         """ initialize the compilation engine which parses tokens from tokensStream and write in xmlFileStream
         INVARIANT: current_token is the token we are handling now given _eat() is last to run in handling it
         Args:
-            tokens_stream (Generator): Generator of jack tokens
-            xml_stream (stream): file to write xml of the parsed code
-            vm_stream (VMWriter): file to write the compiled vm code
+            jack_tokenizer (JackTokenizer): the jack source code tokenizer
+            xml_stream (XMLWriter): writer of parsed xml code
+            vm_stream (VMWriter): writer of compiled vm code
         """
-        self.tokens_stream = tokens_stream
+        self.jack_tokenizer = jack_tokenizer
+        self.tokens_stream = jack_tokenizer.start_tokenizer()
         self.xml_stream = xml_stream
         self.vm_stream = vm_stream
         self.current_token = None
@@ -621,96 +712,6 @@ class CompilationEngine:
         self.xml_stream.write_close_tag('expressionList')
 
 
-# Module 4: VMWriter, generates VM code
-class Writer:
-    def __init__(self, out_stream):
-        self.out_stream = out_stream
-
-
-class XMLWriter(Writer):
-    special_xml = {
-        LESS_THAN: '&lt;',
-        GREATER_THAN: '&gt;',
-        AMPERSAND: '&amp;',
-        DOUBLE_QUOTES: '&quot;'
-    }
-
-    def __init__(self, out_stream):
-        super().__init__(out_stream)
-        self.indent_level = 0
-
-    def reindent(self, indent=1):
-        self.indent_level += indent
-
-    def deindent(self, indent=1):
-        self.indent_level -= indent
-
-    def write_tag_value(self, tag, value):
-        """writes xml tagged jack token to xmlFileStream
-        Args:
-            tag (str): type of token
-            value (str | integer): value of token
-        """
-        value = self.special_xml.get(value, value)
-        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_stream.write(f'{indent}<{tag}> {value} </{tag}>{NEWLINE}')
-
-    def write_open_tag(self, tag):
-        """writes xml open tag with given tag
-        Args:
-            tag (str): xml tag
-        """
-        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_stream.write(f'{indent}<{tag}>{NEWLINE}')
-
-    def write_close_tag(self, tag):
-        """writes xml close tag with given tag
-        Args:
-            tag (str): xml tag
-        """
-        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_stream.write(f'{indent}</{tag}>{NEWLINE}')
-
-
-class VMWriter(Writer):
-    def write_push(self, segment, index):
-        self.out_stream.write(f"push {segment} {index}{NEWLINE}")
-
-    def write_pop(self, segment, index):
-        self.out_stream.write(f"pop {segment} {index}{NEWLINE}")
-
-    def write_arithmetic(self, vm_command):
-        self.out_stream.write(f"{vm_command}{NEWLINE}")
-
-    # writes a vm label command
-    def write_label(self, label):
-        self.out_stream.write(f"label {label}{NEWLINE}")
-
-    # writes a vm goto command
-    def write_goto(self, label):
-        self.out_stream.write(f"goto {label}{NEWLINE}")
-
-    # writes a vm if-goto command
-    def write_if_goto(self, label):
-        self.out_stream.write(f"if-goto {label}{NEWLINE}")
-
-    # writes a vm call command
-    def write_call(self, name: str, n_args: int):
-        self.out_stream.write(f"call {name} {n_args}{NEWLINE}")
-
-    # write a vm function
-    def write_function(self, name: str, n_locals: int):
-        self.out_stream.write(f"function {name} {n_locals}{NEWLINE}")
-
-    # writes a vm return command
-    def write_return(self):
-        self.out_stream.write(f"return{NEWLINE}")
-
-    # closes the output file, I guess not needed here, it is java-style
-    def close(self):
-        pass
-
-
 # TODO: implement
 # Module 3: Symbol Table, we need 2: class-level and subroutine-level
 """ Symbol tables
@@ -836,15 +837,14 @@ class SymbolTable:
 
 # TODO: adjust to output vm files (maybe keep xml too)
 # Module 1: Jack compiler (ui)
-def handle_file(path):
-    logging.info(f'Parsing {path}')
-    out_xml_path = path.replace(SRC_FILE_EXT, XML_FILE_EXT)
-    out_vm_path = path.replace(SRC_FILE_EXT, VM_FILE_EXT)
-    with open(path) as inFileStream, \
+def handle_file(src_path):
+    logging.info(f'Parsing {src_path}')
+    out_xml_path = src_path.replace(SRC_FILE_EXT, XML_FILE_EXT)
+    out_vm_path = src_path.replace(SRC_FILE_EXT, VM_FILE_EXT)
+    with open(src_path) as src_stream, \
             open(out_xml_path, 'w') as xml_stream, \
             open(out_vm_path, 'w') as vm_stream:
-        tokens_stream = JackTokenizer(inFileStream.read()).start_tokenizer()
-        compilation_engine = CompilationEngine(tokens_stream, XMLWriter(xml_stream), VMWriter(vm_stream))
+        compilation_engine = CompilationEngine(JackTokenizer(src_stream), XMLWriter(xml_stream), VMWriter(vm_stream))
         compilation_engine.compile_class()
     logging.info(f'generated {out_xml_path}')
     logging.info(f'generated {out_vm_path}')
