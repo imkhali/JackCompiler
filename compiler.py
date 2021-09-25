@@ -82,26 +82,18 @@ class JackTokenizer:
 # TODO: change to output the vm code (no more xml)
 # Module 5: CompilationEngine
 class CompilationEngine:
-    special_xml = {
-        LESS_THAN: '&lt;',
-        GREATER_THAN: '&gt;',
-        AMPERSAND: '&amp;',
-        DOUBLE_QUOTES: '&quot;'
-    }
-
-    def __init__(self, tokens_stream, out_xml_stream, out_vm_stream):
+    def __init__(self, tokens_stream, xml_stream, vm_stream):
         """ initialize the compilation engine which parses tokens from tokensStream and write in xmlFileStream
         INVARIANT: current_token is the token we are handling now given _eat() is last to run in handling it
         Args:
             tokens_stream (Generator): Generator of jack tokens
-            out_xml_stream (stream): file to write xml of the parsed code
-            out_vm_stream (stream): file to write the compiled vm code
+            xml_stream (stream): file to write xml of the parsed code
+            vm_stream (VMWriter): file to write the compiled vm code
         """
         self.tokens_stream = tokens_stream
-        self.out_xml_stream = out_xml_stream
-        self.out_vm_stream = out_vm_stream
+        self.xml_stream = xml_stream
+        self.vm_stream = vm_stream
         self.current_token = None
-        self.indent_level = 0
 
     @property
     def current_token_value(self):
@@ -110,38 +102,6 @@ class CompilationEngine:
     @property
     def current_token_type(self):
         return self.current_token.type
-
-    def reindent(self, indent=1):
-        self.indent_level += indent
-
-    def deindent(self, indent=1):
-        self.indent_level -= indent
-
-    def _write_tag_value(self, tag, value):
-        """writes xml tagged jack token to xmlFileStream
-        Args:
-            tag (str): type of token
-            value (str | integer): value of token
-        """
-        value = self.special_xml.get(value, value)
-        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_xml_stream.write(f'{indent}<{tag}> {value} </{tag}>{NEWLINE}')
-
-    def _write_open_tag(self, tag):
-        """writes xml open tag with given tag
-        Args:
-            tag (str): xml tag
-        """
-        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_xml_stream.write(f'{indent}<{tag}>{NEWLINE}')
-
-    def _write_close_tag(self, tag):
-        """writes xml close tag with given tag
-        Args:
-            tag (str): xml tag
-        """
-        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
-        self.out_xml_stream.write(f'{indent}</{tag}>{NEWLINE}')
 
     def _eat(self, s):
         """advance to next token if given string is same as the current token, otherwise raise error
@@ -172,19 +132,19 @@ class CompilationEngine:
             return
 
         # <class>
-        self._write_open_tag(CLASS)
-        self.reindent()
+        self.xml_stream.write_open_tag(CLASS)
+        self.xml_stream.reindent()
 
         # class
-        self._write_tag_value(KEYWORD, self.current_token_value)
+        self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
         self._eat(CLASS)
 
         # className
-        self._write_tag_value(IDENTIFIER, self.current_token_value)
+        self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
         self._eat(IDENTIFIER)
 
         # {
-        self._write_tag_value(SYMBOL, self.current_token_value)
+        self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
         self._eat(LEFT_BRACE)
 
         # classVarDec*
@@ -196,23 +156,23 @@ class CompilationEngine:
             self.compile_subroutine_dec()
 
         # }
-        self._write_tag_value(SYMBOL, self.current_token_value)
+        self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
         self._eat(RIGHT_BRACE)
 
         # </class>
-        self.deindent()
-        self._write_close_tag(CLASS)
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag(CLASS)
 
     def compile_class_var_dec(self):
         """compile a jack class variable declarations
         ASSUME: only called if current token's value is static or field
         """
         # <classVarDec>
-        self._write_open_tag('classVarDec')
-        self.reindent()
+        self.xml_stream.write_open_tag('classVarDec')
+        self.xml_stream.reindent()
 
         # field | static
-        self._write_tag_value(KEYWORD, self.current_token_value)
+        self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
         if self.current_token_value in (STATIC, FIELD):
             self._eat(self.current_token_value)
 
@@ -220,27 +180,27 @@ class CompilationEngine:
         self._handle_type_var_name()
 
         # </classVarDec>
-        self.deindent()
-        self._write_close_tag('classVarDec')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('classVarDec')
 
     def _handle_type_var_name(self):
         # type
         if self.current_token_value in {INT, CHAR, BOOLEAN}:
-            self._write_tag_value(KEYWORD, self.current_token_value)
+            self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
             self._eat(self.current_token_value)
         elif self.current_token_type == IDENTIFIER:
-            self._write_tag_value(IDENTIFIER, self.current_token_value)
+            self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
 
         # varName (, varName)*;
         while True:
-            self._write_tag_value(IDENTIFIER, self.current_token_value)
+            self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
             if self.current_token_value == SEMI_COLON:
                 break
-            self._write_tag_value(SYMBOL, COMMA)
+            self.xml_stream.write_tag_value(SYMBOL, COMMA)
             self._eat(COMMA)
-        self._write_tag_value(SYMBOL, SEMI_COLON)
+        self.xml_stream.write_tag_value(SYMBOL, SEMI_COLON)
         self._eat(SEMI_COLON)
 
     def compile_subroutine_dec(self):
@@ -248,81 +208,81 @@ class CompilationEngine:
         ASSUME: only called if current token's value is constructor, function or method
         """
         # <subroutineDec>
-        self._write_open_tag('subroutineDec')
-        self.reindent()
+        self.xml_stream.write_open_tag('subroutineDec')
+        self.xml_stream.reindent()
 
         # constructor | function | method
-        self._write_tag_value(KEYWORD, self.current_token_value)
+        self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
         if self.current_token_value in (CONSTRUCTOR, FUNCTION, METHOD):
             self._eat(self.current_token_value)
 
         # void | type
         if self.current_token_value in (VOID, INT, CHAR, BOOLEAN):
-            self._write_tag_value(KEYWORD, self.current_token_value)
+            self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
             self._eat(self.current_token_value)
         elif self.current_token_type == IDENTIFIER:
-            self._write_tag_value(IDENTIFIER, self.current_token_value)
+            self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
 
         # subroutineName
-        self._write_tag_value(IDENTIFIER, self.current_token_value)
+        self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
         self._eat(IDENTIFIER)
 
         # (
-        self._write_tag_value(SYMBOL, self.current_token_value)
+        self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
         self._eat(LEFT_PAREN)
 
         # parameterList
         self.compile_parameter_list()
 
         # )
-        self._write_tag_value(SYMBOL, self.current_token_value)
+        self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
         self._eat(RIGHT_PAREN)
 
         # subroutineBody
         self.compile_subroutine_body()
 
         # </subroutineDec>
-        self.deindent()
-        self._write_close_tag('subroutineDec')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('subroutineDec')
 
     def compile_parameter_list(self):
         """compile a jack parameter list which is 0 or more list
         """
         # <parameterList>
-        self._write_open_tag('parameterList')
-        self.reindent()
+        self.xml_stream.write_open_tag('parameterList')
+        self.xml_stream.reindent()
 
         # ((type varName) (, type varName)*)?
         while True:
             if self.current_token_value in {INT, CHAR, BOOLEAN}:
-                self._write_tag_value(KEYWORD, self.current_token_value)
+                self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
                 self._eat(self.current_token_value)
             elif self.current_token_type == IDENTIFIER:
-                self._write_tag_value(IDENTIFIER, self.current_token_value)
+                self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
                 self._eat(IDENTIFIER)
             else:
                 break
 
-            self._write_tag_value(IDENTIFIER, self.current_token_value)
+            self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
             if not self.current_token_value == COMMA:
                 break
-            self._write_tag_value(SYMBOL, COMMA)
+            self.xml_stream.write_tag_value(SYMBOL, COMMA)
             self._eat(COMMA)
 
-        self.deindent()
-        self._write_close_tag('parameterList')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('parameterList')
 
     def compile_subroutine_body(self):
         """compile a jack subroutine body which is varDec* statements
         """
         # <subroutineBody>
-        self._write_open_tag('subroutineBody')
-        self.reindent()
+        self.xml_stream.write_open_tag('subroutineBody')
+        self.xml_stream.reindent()
 
         # {
-        self._write_tag_value(SYMBOL, LEFT_BRACE)
+        self.xml_stream.write_tag_value(SYMBOL, LEFT_BRACE)
         self._eat(LEFT_BRACE)
 
         while self.current_token_value == VAR:  # order matters, simplify
@@ -331,39 +291,39 @@ class CompilationEngine:
         self.compile_statements()
 
         # }
-        self._write_tag_value(SYMBOL, RIGHT_BRACE)
+        self.xml_stream.write_tag_value(SYMBOL, RIGHT_BRACE)
         self._eat(RIGHT_BRACE)
 
         # </subroutineBody>
-        self.deindent()
-        self._write_close_tag('subroutineBody')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('subroutineBody')
 
     def compile_var_dec(self):
         """compile jack variable declaration, varDec*, only called if current token is var
         add the variable to symbol table
         """
         # <varDec>
-        self._write_open_tag('varDec')
-        self.reindent()
+        self.xml_stream.write_open_tag('varDec')
+        self.xml_stream.reindent()
 
         # VAR
-        self._write_tag_value(KEYWORD, self.current_token_value)
+        self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
         self._eat(VAR)
 
         # type varName (',' varName)*;
         self._handle_type_var_name()
 
         # </varDec>
-        self.deindent()
-        self._write_close_tag('varDec')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('varDec')
 
     def compile_statements(self):
         """
         match the current token value to the matching jack statement
         """
         # <statements>
-        self._write_open_tag('statements')
-        self.reindent()
+        self.xml_stream.write_open_tag('statements')
+        self.xml_stream.reindent()
 
         while self.current_token_value in {LET, IF, WHILE, DO, RETURN}:
             {
@@ -375,47 +335,47 @@ class CompilationEngine:
             }[self.current_token_value]()
 
         # </statements>
-        self.deindent()
-        self._write_close_tag('statements')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('statements')
 
     def compile_let_statement(self):
         """
         compile jack let statement
         """
         # <letStatement>
-        self._write_open_tag('letStatement')
-        self.reindent()
+        self.xml_stream.write_open_tag('letStatement')
+        self.xml_stream.reindent()
 
         # let
-        self._write_tag_value(KEYWORD, LET)
+        self.xml_stream.write_tag_value(KEYWORD, LET)
         self._eat(LET)
 
         # varName
-        self._write_tag_value(IDENTIFIER, self.current_token_value)
+        self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
         self._eat(IDENTIFIER)
 
         # ( '[' expression ']')?
         if self.current_token_value == LEFT_BRACKET:
-            self._write_tag_value(SYMBOL, LEFT_BRACKET)
+            self.xml_stream.write_tag_value(SYMBOL, LEFT_BRACKET)
             self._eat(LEFT_BRACKET)
             self.compile_expression()
-            self._write_tag_value(SYMBOL, RIGHT_BRACKET)
+            self.xml_stream.write_tag_value(SYMBOL, RIGHT_BRACKET)
             self._eat(RIGHT_BRACKET)
 
         # =
-        self._write_tag_value(SYMBOL, EQUAL_SIGN)
+        self.xml_stream.write_tag_value(SYMBOL, EQUAL_SIGN)
         self._eat(EQUAL_SIGN)
 
         # expression
         self.compile_expression()
 
         # ;
-        self._write_tag_value(SYMBOL, SEMI_COLON)
+        self.xml_stream.write_tag_value(SYMBOL, SEMI_COLON)
         self._eat(SEMI_COLON)
 
         # <letStatement>
-        self.deindent()
-        self._write_close_tag('letStatement')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('letStatement')
 
     def compile_if_statement(self):
         """
@@ -423,11 +383,11 @@ class CompilationEngine:
         """
 
         # <ifStatement>
-        self._write_open_tag('ifStatement')
-        self.reindent()
+        self.xml_stream.write_open_tag('ifStatement')
+        self.xml_stream.reindent()
 
         # if
-        self._write_tag_value(KEYWORD, IF)
+        self.xml_stream.write_tag_value(KEYWORD, IF)
         self._eat(IF)
 
         # (expression)
@@ -437,33 +397,33 @@ class CompilationEngine:
         self._handle_statements_within_braces()
 
         if self.current_token_value == ELSE:
-            self._write_tag_value(KEYWORD, ELSE)
+            self.xml_stream.write_tag_value(KEYWORD, ELSE)
             self._eat(ELSE)
             self._handle_statements_within_braces()
 
         # <ifStatement>
-        self.deindent()
-        self._write_close_tag('ifStatement')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('ifStatement')
 
     def _handle_expr_or_expr_list_within_paren(self, compile_function):
         # (
-        self._write_tag_value(SYMBOL, LEFT_PAREN)
+        self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
         self._eat(LEFT_PAREN)
         # compile_expression or compile_expression_list
         compile_function()
         # )
-        self._write_tag_value(SYMBOL, RIGHT_PAREN)
+        self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
         self._eat(RIGHT_PAREN)
 
     def _handle_statements_within_braces(self):
         # {
-        self._write_tag_value(SYMBOL, LEFT_BRACE)
+        self.xml_stream.write_tag_value(SYMBOL, LEFT_BRACE)
         self._eat(LEFT_BRACE)
         # statements
         while self.current_token_value in {LET, IF, WHILE, DO, RETURN}:
             self.compile_statements()
         # }
-        self._write_tag_value(SYMBOL, RIGHT_BRACE)
+        self.xml_stream.write_tag_value(SYMBOL, RIGHT_BRACE)
         self._eat(RIGHT_BRACE)
 
     def compile_while_statement(self):
@@ -472,11 +432,11 @@ class CompilationEngine:
         """
 
         # <whileStatement>
-        self._write_open_tag('whileStatement')
-        self.reindent()
+        self.xml_stream.write_open_tag('whileStatement')
+        self.xml_stream.reindent()
 
         # while
-        self._write_tag_value(KEYWORD, WHILE)
+        self.xml_stream.write_tag_value(KEYWORD, WHILE)
         self._eat(WHILE)
 
         # (expression)
@@ -486,8 +446,8 @@ class CompilationEngine:
         self._handle_statements_within_braces()
 
         # <whileStatement>
-        self.deindent()
-        self._write_close_tag('whileStatement')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('whileStatement')
 
     def compile_do_statement(self):
         """
@@ -495,44 +455,44 @@ class CompilationEngine:
         """
 
         # <doStatement>
-        self._write_open_tag('doStatement')
-        self.reindent()
+        self.xml_stream.write_open_tag('doStatement')
+        self.xml_stream.reindent()
 
         # do
-        self._write_tag_value(KEYWORD, DO)
+        self.xml_stream.write_tag_value(KEYWORD, DO)
         self._eat(DO)
 
         #  subroutineName | (className | varName)'.'subroutineName
-        self._write_tag_value(IDENTIFIER, self.current_token_value)
+        self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
         self._eat(IDENTIFIER)
         # check if '.'
         if self.current_token_value == DOT:
-            self._write_tag_value(SYMBOL, DOT)
+            self.xml_stream.write_tag_value(SYMBOL, DOT)
             self._eat(DOT)
-            self._write_tag_value(IDENTIFIER, self.current_token_value)
+            self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
 
         # (expressionList)
         self._handle_expr_or_expr_list_within_paren(self.compile_expression_list)
 
         # ;
-        self._write_tag_value(SYMBOL, SEMI_COLON)
+        self.xml_stream.write_tag_value(SYMBOL, SEMI_COLON)
         self._eat(SEMI_COLON)
 
         # </doStatement>
-        self.deindent()
-        self._write_close_tag('doStatement')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('doStatement')
 
     def compile_return_statement(self):
         """
         compile jack return statement
         """
         # <returnStatement>
-        self._write_open_tag('returnStatement')
-        self.reindent()
+        self.xml_stream.write_open_tag('returnStatement')
+        self.xml_stream.reindent()
 
         # return
-        self._write_tag_value(KEYWORD, RETURN)
+        self.xml_stream.write_tag_value(KEYWORD, RETURN)
         self._eat(RETURN)
 
         # expression?
@@ -540,12 +500,12 @@ class CompilationEngine:
             self.compile_expression()
 
         # ;
-        self._write_tag_value(SYMBOL, SEMI_COLON)
+        self.xml_stream.write_tag_value(SYMBOL, SEMI_COLON)
         self._eat(SEMI_COLON)
 
         # </returnStatement>
-        self.deindent()
-        self._write_close_tag('returnStatement')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('returnStatement')
 
     def compile_expression(self):
         """
@@ -566,21 +526,21 @@ class CompilationEngine:
             output "call f"
         """
         # <expression>
-        self._write_open_tag('expression')
-        self.reindent()
+        self.xml_stream.write_open_tag('expression')
+        self.xml_stream.reindent()
 
         # term
         self.compile_term()
 
         # (op term)*
         while self.current_token_value in OP:
-            self._write_tag_value(SYMBOL, self.current_token_value)
+            self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
             self._eat(self.current_token_value)
             self.compile_term()
 
         # </expression>
-        self.deindent()
-        self._write_close_tag('expression')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('expression')
 
     def compile_term(self):
         """
@@ -588,20 +548,20 @@ class CompilationEngine:
         """
 
         # <term>
-        self._write_open_tag('term')
-        self.reindent()
+        self.xml_stream.write_open_tag('term')
+        self.xml_stream.reindent()
 
         if self.current_token_type == INT_CONSTANT:
-            self._write_tag_value('integerConstant', self.current_token_value)
+            self.xml_stream.write_tag_value('integerConstant', self.current_token_value)
             self._eat(INT_CONSTANT)
         elif self.current_token_type == STR_CONSTANT:
-            self._write_tag_value('stringConstant', self.current_token_value.strip(DOUBLE_QUOTES))
+            self.xml_stream.write_tag_value('stringConstant', self.current_token_value.strip(DOUBLE_QUOTES))
             self._eat(STR_CONSTANT)
         elif self.current_token_value in KEYWORD_CONSTANT:
-            self._write_tag_value(KEYWORD, self.current_token_value)
+            self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
             self._eat(self.current_token_value)
         elif self.current_token_value in UNARY_OP:
-            self._write_tag_value(SYMBOL, self.current_token_value)
+            self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
             self._eat(self.current_token_value)
             self.compile_term()
         elif self.current_token_value == LEFT_PAREN:  # '(' expression ')'
@@ -613,39 +573,39 @@ class CompilationEngine:
 
             # varName'[' expression ']'
             if next_token_value == LEFT_BRACKET:
-                self._write_tag_value(IDENTIFIER, current_token_value)
-                self._write_tag_value(SYMBOL, LEFT_BRACKET)
+                self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
+                self.xml_stream.write_tag_value(SYMBOL, LEFT_BRACKET)
                 self._eat(LEFT_BRACKET)
                 self.compile_expression()
-                self._write_tag_value(SYMBOL, RIGHT_BRACKET)
+                self.xml_stream.write_tag_value(SYMBOL, RIGHT_BRACKET)
                 self._eat(RIGHT_BRACKET)
             # subroutineCall: foo.bar(expressionList) | Foo.bar(expressionList)
             elif next_token_value == DOT:
-                self._write_tag_value(IDENTIFIER, current_token_value)
-                self._write_tag_value(SYMBOL, DOT)
+                self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
+                self.xml_stream.write_tag_value(SYMBOL, DOT)
                 self._eat(DOT)
-                self._write_tag_value(IDENTIFIER, self.current_token_value)
+                self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
                 self._eat(IDENTIFIER)
                 self._handle_expr_or_expr_list_within_paren(self.compile_expression_list)
             # subroutineCall: bar(expressionList)
             elif next_token_value == LEFT_PAREN:
-                self._write_tag_value(IDENTIFIER, current_token_value)
+                self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
                 self._handle_expr_or_expr_list_within_paren(self.compile_expression_list)
             # foo
             else:
-                self._write_tag_value(IDENTIFIER, current_token_value)
+                self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
 
         # </term>
-        self.deindent()
-        self._write_close_tag('term')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('term')
 
     def compile_expression_list(self):
         """
         compile jack expression list
         """
         # <expressionList>
-        self._write_open_tag('expressionList')
-        self.reindent()
+        self.xml_stream.write_open_tag('expressionList')
+        self.xml_stream.reindent()
 
         # (expression (',' expression)*)?
         if not self.current_token_value == RIGHT_PAREN:
@@ -653,21 +613,66 @@ class CompilationEngine:
                 self.compile_expression()
                 if not self.current_token_value == COMMA:
                     break
-                self._write_tag_value(SYMBOL, COMMA)
+                self.xml_stream.write_tag_value(SYMBOL, COMMA)
                 self._eat(COMMA)
 
         # </expressionList>
-        self.deindent()
-        self._write_close_tag('expressionList')
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag('expressionList')
 
 
-# TODO: implement
 # Module 4: VMWriter, generates VM code
-class VMWriter:
-
+class Writer:
     def __init__(self, out_stream):
         self.out_stream = out_stream
 
+
+class XMLWriter(Writer):
+    special_xml = {
+        LESS_THAN: '&lt;',
+        GREATER_THAN: '&gt;',
+        AMPERSAND: '&amp;',
+        DOUBLE_QUOTES: '&quot;'
+    }
+
+    def __init__(self, out_stream):
+        super().__init__(out_stream)
+        self.indent_level = 0
+
+    def reindent(self, indent=1):
+        self.indent_level += indent
+
+    def deindent(self, indent=1):
+        self.indent_level -= indent
+
+    def write_tag_value(self, tag, value):
+        """writes xml tagged jack token to xmlFileStream
+        Args:
+            tag (str): type of token
+            value (str | integer): value of token
+        """
+        value = self.special_xml.get(value, value)
+        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
+        self.out_stream.write(f'{indent}<{tag}> {value} </{tag}>{NEWLINE}')
+
+    def write_open_tag(self, tag):
+        """writes xml open tag with given tag
+        Args:
+            tag (str): xml tag
+        """
+        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
+        self.out_stream.write(f'{indent}<{tag}>{NEWLINE}')
+
+    def write_close_tag(self, tag):
+        """writes xml close tag with given tag
+        Args:
+            tag (str): xml tag
+        """
+        indent = ' ' * INDENT_NUM_SPACES * self.indent_level
+        self.out_stream.write(f'{indent}</{tag}>{NEWLINE}')
+
+
+class VMWriter(Writer):
     def write_push(self, segment, index):
         self.out_stream.write(f"push {segment} {index}{NEWLINE}")
 
@@ -839,7 +844,7 @@ def handle_file(path):
             open(out_xml_path, 'w') as xml_stream, \
             open(out_vm_path, 'w') as vm_stream:
         tokens_stream = JackTokenizer(inFileStream.read()).start_tokenizer()
-        compilation_engine = CompilationEngine(tokens_stream, xml_stream, vm_stream)
+        compilation_engine = CompilationEngine(tokens_stream, XMLWriter(xml_stream), VMWriter(vm_stream))
         compilation_engine.compile_class()
     logging.info(f'generated {out_xml_path}')
     logging.info(f'generated {out_vm_path}')

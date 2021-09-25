@@ -28,7 +28,7 @@ class SymbolTableTest(unittest.TestCase):
         def kind_of_raises_error():
             return table.kind_of("x")
         self.assertRaises(
-            JVarNotFound,
+            CompileException,
             kind_of_raises_error,
         )
         table.define("x", JType.JInt, JVarKind.static)
