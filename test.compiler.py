@@ -1,4 +1,5 @@
 import unittest
+
 from compiler import *
 
 
@@ -18,6 +19,20 @@ class SymbolTableTest(unittest.TestCase):
         self._assertOnlyVarInSymbolTable("x", JType.JInt, JVarKind.static)
         table.define("local", JType.JChar, JVarKind.local)
         self.assertEqual(table.var_count(JVarKind.local), 1)
+        table.define("m", JType.JChar, JVarKind.local)
+        self.assertEqual(table.var_count(JVarKind.local), 2)
+
+    def test_kind_of(self):
+        table = self.test_symbol_table
+
+        def kind_of_raises_error():
+            return table.kind_of("x")
+        self.assertRaises(
+            JVarNotFound,
+            kind_of_raises_error,
+        )
+        table.define("x", JType.JInt, JVarKind.static)
+        self.assertEqual(table.kind_of("x"), JVarKind.static)
 
     def _assertOnlyVarInSymbolTable(self, var, _type, kind):
         table = self.test_symbol_table
