@@ -3,7 +3,8 @@ import logging
 import os
 import re
 import sys
-from typing import NamedTuple, TextIO
+from typing import NamedTuple, TextIO, Optional
+from operator import attrgetter
 
 from lexicals import *
 
@@ -66,7 +67,7 @@ class JackTokenizer:
         return os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
 
     def start_tokenizer(self):
-        line_number = 0
+        line_number = 1
         for m in self.jack_token.finditer(self.in_stream.read()):
             token_type = m.lastgroup
             token_value = m.group(token_type)
@@ -279,29 +280,40 @@ class CompilationEngine:
 
         # field | static
         self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
+        kind = None
         if self.current_token_value in (STATIC, FIELD):
+            kind = self.current_token_value
             self._eat(self.current_token_value)
 
         # varName
-        self._handle_type_var_name()
+        for _type, name in self._handle_type_var_name():
+            self.symbol_table.define(name=name, _type=_type, kind=kind)
 
         # </classVarDec>
         self.xml_stream.deindent()
         self.xml_stream.write_close_tag('classVarDec')
 
     def _handle_type_var_name(self):
+        """
+        :return: generator of jack variable (type, name)
+        """
         # type
+        _type = None
         if self.current_token_value in {INT, CHAR, BOOLEAN}:
+            _type = self.current_token_value
             self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
             self._eat(self.current_token_value)
         elif self.current_token_type == IDENTIFIER:
+            _type = self.current_token_value
             self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
 
         # varName (, varName)*;
         while True:
+            name = self.current_token_value
             self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
+            yield _type, name
             if self.current_token_value == SEMI_COLON:
                 break
             self.xml_stream.write_tag_value(SYMBOL, COMMA)
@@ -417,7 +429,8 @@ class CompilationEngine:
         self._eat(VAR)
 
         # type varName (',' varName)*;
-        self._handle_type_var_name()
+        for _type, name in self._handle_type_var_name():
+            self.symbol_table.define(name=name, _type=_type, kind=JVarKind.local)
 
         # </varDec>
         self.xml_stream.deindent()
@@ -657,22 +670,31 @@ class CompilationEngine:
         self.xml_stream.write_open_tag('term')
         self.xml_stream.reindent()
 
-        if self.current_token_type == INT_CONSTANT:
-            self.xml_stream.write_tag_value('integerConstant', self.current_token_value)
+        current_token_value, current_token_type = self.current_token_value, self.current_token_type
+        if current_token_type == INT_CONSTANT:
+            self.vm_stream.write_push("constant", current_token_value)
+            self.xml_stream.write_tag_value('integerConstant', current_token_value)
             self._eat(INT_CONSTANT)
-        elif self.current_token_type == STR_CONSTANT:
-            self.xml_stream.write_tag_value('stringConstant', self.current_token_value.strip(DOUBLE_QUOTES))
+        elif current_token_type == STR_CONSTANT:
+            current_value = current_token_value
+            self.vm_stream.write_push("constant", len(current_value))
+            self.vm_stream.write_call("String.new", 1)
+            for c in current_value:
+                self.vm_stream.write_call("String.appendChar", 2)
+                self.vm_stream.write_push("constant", ord(c))
+            self.xml_stream.write_tag_value('stringConstant', current_token_value.strip(DOUBLE_QUOTES))
             self._eat(STR_CONSTANT)
-        elif self.current_token_value in KEYWORD_CONSTANT:
-            self.xml_stream.write_tag_value(KEYWORD, self.current_token_value)
-            self._eat(self.current_token_value)
-        elif self.current_token_value in UNARY_OP:
-            self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
-            self._eat(self.current_token_value)
+        elif current_token_value in KEYWORD_CONSTANT:
+            self.xml_stream.write_tag_value(KEYWORD, current_token_value)
+            self._eat(current_token_value)
+        elif current_token_value in UNARY_OP:
+            self.xml_stream.write_tag_value(SYMBOL, current_token_value)
+            self._eat(current_token_value)
             self.compile_term()
-        elif self.current_token_value == LEFT_PAREN:  # '(' expression ')'
+        elif current_token_value == LEFT_PAREN:  # '(' expression ')'
             self._handle_expr_or_expr_list_within_paren(self.compile_expression)
         else:  # identifier
+            # TODO: start here
             current_token_value = self.current_token_value
             self._eat(IDENTIFIER)
             next_token_value = self.current_token_value
@@ -736,13 +758,13 @@ y       int     field       1
 """
 
 
-# helper enums
-class JType(enum.Enum):
-    JInt = 1
-    JChar = 2
-    JBoolean = 3
-    JCustom = 4  # class name
-
+# # helper enums
+# class JType(enum.Enum):
+#     JInt = 1
+#     JChar = 2
+#     JBoolean = 3
+#     JCustom = 4  # class name
+#
 
 class JVarKind(enum.Enum):
     field = 1
@@ -758,7 +780,7 @@ class JVarKind(enum.Enum):
 
 class JVariable(NamedTuple):
     name: str
-    type: JType
+    type: str
     kind: JVarKind
     index: int
 
@@ -771,20 +793,29 @@ class JVariable(NamedTuple):
 class SymbolTable:
     def __init__(self):
         self._class_level_data = []
-        self._subroutine_data = []
+        self._class_level_index = 0
+        self._sub_level_data = []
+        self._sub_level_index = 0
 
     # starts a new subroutine scope
     def start_subroutine(self):
-        self._subroutine_data = []
+        self._sub_level_data = []
+        self._sub_level_index = 0
 
     # defines a new identifier of given parameters and assign it a running index
-    def define(self, name: str, _type: JType, kind: JVarKind):
-        if kind is JVarKind.field or kind is JVarKind.static:
-            j_var = JVariable(name, _type, kind, len(self._class_level_data))
+    def define(self, name: str, _type: str, kind: Optional[JVarKind]):
+        for arg in name, _type, kind:
+            if not arg:
+                raise CompileException(f"'{arg}' is not a valid variable name")
+
+        if kind in (JVarKind.field, JVarKind.static):
+            j_var = JVariable(name, _type, kind, self._class_level_index)
             self._class_level_data.append(j_var)
-        if kind is JVarKind.local or kind is JVarKind.argument:
-            j_var = JVariable(name, _type, kind, len(self._subroutine_data))
-            self._subroutine_data.append(j_var)
+            self._class_level_index += 1
+        if kind in (JVarKind.local, JVarKind.argument):
+            j_var = JVariable(name, _type, kind, self._sub_level_index)
+            self._sub_level_index += 1
+            self._sub_level_data.append(j_var)
 
     def var_count(self, kind: JVarKind):
         """
@@ -792,17 +823,11 @@ class SymbolTable:
         :param kind: kind of jack variable
         :return: number of variables of kind in symbol table
         """
-        count = 0
-        if kind is JVarKind.field or kind is JVarKind.static:
-            for var in self._class_level_data:
-                if kind is var.kind:
-                    count += 1
-            return count
-        if kind is JVarKind.local or kind is JVarKind.argument:
-            for var in self._subroutine_data:
-                if kind is var.kind:
-                    count += 1
-            return count
+        if kind in (JVarKind.field, JVarKind.static):
+            return sum(kind is var.kind for var in self._class_level_data)
+        if kind in (JVarKind.local, JVarKind.argument):
+            return sum(kind is var.kind for var in self._sub_level_data)
+        raise CompileException(f"{kind} is not supported!")
 
     def kind_of(self, var: str):
         """
@@ -810,14 +835,7 @@ class SymbolTable:
         :param var: the identifier or variable to look for
         :return: kind of var
         """
-        for sub_var in self._subroutine_data:
-            if var == sub_var.name:
-                return sub_var.kind
-        for class_var in self._class_level_data:
-            if var == class_var.name:
-                return class_var.kind
-
-        raise CompileException(f"{var} is not defined!")
+        return self._get_var_property(var, 'kind')
 
     def type_of(self, var: str):
         """
@@ -825,14 +843,7 @@ class SymbolTable:
         :param var: the identifier or variable to look for
         :return: type of var
         """
-        for sub_var in self._subroutine_data:
-            if var == sub_var.name:
-                return sub_var.type
-        for class_var in self._class_level_data:
-            if var == class_var.name:
-                return class_var.type
-
-        raise CompileException(f"{var} is not defined!")
+        return self._get_var_property(var, 'type')
 
     def index_of(self, var: str):
         """
@@ -840,13 +851,16 @@ class SymbolTable:
         :param var: the identifier or variable to look for
         :return:
         """
-        for sub_var in self._subroutine_data:
+        return self._get_var_property(var, 'index')
+
+    def _get_var_property(self, var: str, _property: str):
+        property_getter = attrgetter(_property)
+        for sub_var in self._sub_level_data:
             if var == sub_var.name:
-                return sub_var.index
+                return property_getter(sub_var)
         for class_var in self._class_level_data:
             if var == class_var.name:
-                return class_var.index
-
+                return property_getter(class_var)
         raise CompileException(f"{var} is not defined!")
 
 
