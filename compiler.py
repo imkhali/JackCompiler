@@ -1,4 +1,3 @@
-import enum
 import logging
 import os
 import re
@@ -273,6 +272,7 @@ class CompilationEngine:
 
         # subroutineDec*
         while self.current_token_value in {CONSTRUCTOR, FUNCTION, METHOD}:
+            self.symbol_table.start_subroutine()
             self.compile_subroutine_dec()
 
         # }
@@ -572,7 +572,7 @@ class CompilationEngine:
             "name": name,
             "kind": self.symbol_table.kind_of(name),
             "index": self.symbol_table.index_of(name),
-            "context": "define"
+            "context": "assign"
         })
         self.xml_stream.deindent()
         self.xml_stream.write_close_tag(IDENTIFIER)
@@ -979,6 +979,17 @@ class SymbolTable:
         self._sub_level_data = []
         self._sub_level_index = 0
 
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        result = ''
+        if self._class_level_data:
+            result += '\nclass level:\n' + '\n'.join(map(str, self._class_level_data))
+        if self._sub_level_data:
+            result += '\n\nsub level:\n' + '\n'.join(map(str, self._sub_level_data)) + '\n'
+        return result
+
     # starts a new subroutine scope
     def start_subroutine(self):
         self._sub_level_data = []
@@ -998,6 +1009,9 @@ class SymbolTable:
             j_var = JVariable(name, _type, kind, self._sub_level_index)
             self._sub_level_index += 1
             self._sub_level_data.append(j_var)
+
+        print(f"{name} added to symbol table")
+        print(self.__str__())
 
     def var_count(self, kind: str):
         """
@@ -1063,7 +1077,7 @@ class SymbolTable:
 # TODO: adjust to output vm files (maybe keep xml too)
 # Module 1: Jack compiler (ui)
 def handle_file(src_path):
-    logging.info(f'Parsing {src_path}')
+    logging.info(f'compiling {src_path}')
     out_xml_path = src_path.replace(SRC_FILE_EXT, XML_FILE_EXT)
     out_vm_path = src_path.replace(SRC_FILE_EXT, VM_FILE_EXT)
     with open(src_path) as src_stream, \
