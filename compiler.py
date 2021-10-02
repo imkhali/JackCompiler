@@ -5,19 +5,7 @@ import sys
 from operator import attrgetter
 from typing import NamedTuple, TextIO, Optional
 
-from lexicals import *
-
-# informative labels
-IF_FALSE = "IF_FALSE"
-IF_TRUE = "IF_TRUE"
-WHILE_END = "WHILE_END"
-WHILE_EXP = 'WHILE_EXP'
-
-SRC_FILE_EXT = '.jack'
-VM_FILE_EXT = '.vm'
-NEWLINE = '\n'
-INDENT_NUM_SPACES = 2
-
+from constants import *
 
 class ParseException(Exception):
     pass

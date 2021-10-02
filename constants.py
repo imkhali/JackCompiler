@@ -67,3 +67,14 @@ VM_OPERATIONS = {
     PIPE: "or",
     TILDE: "not"
 }
+
+# informative labels
+IF_FALSE = "IF_FALSE"
+IF_TRUE = "IF_TRUE"
+WHILE_END = "WHILE_END"
+WHILE_EXP = 'WHILE_EXP'
+
+SRC_FILE_EXT = '.jack'
+VM_FILE_EXT = '.vm'
+NEWLINE = '\n'
+INDENT_NUM_SPACES = 2
