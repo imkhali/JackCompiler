@@ -53,3 +53,16 @@ KEYWORD_CONSTANT = {TRUE, FALSE, NULL, THIS}
 SUBROUTINE = 'subroutine'
 LOCAL = 'local'
 ARGUMENT = 'argument'
+
+VM_OPERATIONS = {
+    PLUS: "add",
+    MINUS: "sub",
+    ASTERISK: "call Math.multiply 2",
+    FORWARD_SLASH: "call Math.divide 2",
+    EQUAL_SIGN: "eq",
+    LESS_THAN: "lt",
+    GREATER_THAN: "gt",
+    AMPERSAND: "and",
+    PIPE: "or",
+    TILDE: "not"
+}

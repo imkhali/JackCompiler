@@ -7,6 +7,12 @@ from typing import NamedTuple, TextIO, Optional
 
 from lexicals import *
 
+# informative labels
+IF_FALSE = "IF_FALSE"
+IF_TRUE = "IF_TRUE"
+WHILE_END = "WHILE_END"
+WHILE_EXP = 'WHILE_EXP'
+
 SRC_FILE_EXT = '.jack'
 XML_FILE_EXT = '_test.xml'
 VM_FILE_EXT = '_test.vm'
@@ -201,6 +207,9 @@ class CompilationEngine:
         self.symbol_table = SymbolTable()
         self.current_token = None
 
+        # labels indices
+        self.labels_indices = {}
+
     @property
     def current_token_value(self):
         return self.current_token.value
@@ -392,6 +401,11 @@ class CompilationEngine:
             "kind": SUBROUTINE,
             "context": "declare"
         })
+
+        # TODO: How to get n_vars before compiling the subroutine body
+        n_vars = -1
+        self.vm_stream.write_function(f'{self.jack_tokenizer.src_base_name}.{self.current_token_value}', n_vars)
+
         self.xml_stream.deindent()
         self.xml_stream.write_close_tag(IDENTIFIER)
         # self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
@@ -587,6 +601,14 @@ class CompilationEngine:
             self.xml_stream.write_tag_value(SYMBOL, RIGHT_BRACKET)
             self._eat(RIGHT_BRACKET)
 
+        if self.symbol_table.contains(name):
+            self._handle_lookup_var_xml(name)
+            self.vm_stream.write_pop(
+                self.symbol_table.kind_of(name),
+                self.symbol_table.index_of(name)
+            )
+        else:
+            raise CompileException(f"{name} is not defined")
         # =
         self.xml_stream.write_tag_value(SYMBOL, EQUAL_SIGN)
         self._eat(EQUAL_SIGN)
@@ -616,29 +638,34 @@ class CompilationEngine:
         self._eat(IF)
 
         # (expression)
-        self._handle_expr_or_expr_list_within_paren(self.compile_expression)
+        self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
+        self._eat(LEFT_PAREN)
+        self.compile_expression()
+        self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
+        self._eat(RIGHT_PAREN)
 
+        index = self.labels_indices.setdefault(IF_TRUE, -1) + 1
+        label_if_true = f'{IF_TRUE}{index}'
+        index = self.labels_indices.setdefault(IF_FALSE, -1) + 1
+        label_if_false = f'{IF_FALSE}{index}'
+
+        self.vm_stream.write_arithmetic("not")
+        self.vm_stream.write_if_goto(label_if_false)
+
+        self.vm_stream.write_goto(label_if_true)
         # {statements}
         self._handle_statements_within_braces()
 
+        self.vm_stream.write_label(label_if_false)
         if self.current_token_value == ELSE:
             self.xml_stream.write_tag_value(KEYWORD, ELSE)
             self._eat(ELSE)
             self._handle_statements_within_braces()
+        self.vm_stream.write_label(label_if_true)
 
         # <ifStatement>/
         self.xml_stream.deindent()
         self.xml_stream.write_close_tag('ifStatement')
-
-    def _handle_expr_or_expr_list_within_paren(self, compile_function):
-        # (
-        self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
-        self._eat(LEFT_PAREN)
-        # compile_expression or compile_expression_list
-        compile_function()
-        # )
-        self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
-        self._eat(RIGHT_PAREN)
 
     def _handle_statements_within_braces(self):
         # {
@@ -664,11 +691,28 @@ class CompilationEngine:
         self.xml_stream.write_tag_value(KEYWORD, WHILE)
         self._eat(WHILE)
 
+        index = self.labels_indices.setdefault(WHILE_EXP, -1) + 1
+        label_while_exp = f'{WHILE_EXP}{index}'
+        index = self.labels_indices.setdefault(WHILE_END, -1) + 1
+        label_while_end = f'{WHILE_END}{index}'
+
+        self.vm_stream.write_label(label_while_exp)
+
         # (expression)
-        self._handle_expr_or_expr_list_within_paren(self.compile_expression)
+        self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
+        self._eat(LEFT_PAREN)
+        self.compile_expression()
+        self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
+        self._eat(RIGHT_PAREN)
+
+        self.vm_stream.write_arithmetic("not")
+        self.vm_stream.write_if_goto(label_while_end)
 
         # {statements}
         self._handle_statements_within_braces()
+        self.vm_stream.write_goto(label_while_exp)
+
+        self.vm_stream.write_label(label_while_end)
 
         # <whileStatement>
         self.xml_stream.deindent()
@@ -699,13 +743,20 @@ class CompilationEngine:
             subroutine_full_name += f'{DOT}{self.current_token_value}'
             # self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
             self._eat(IDENTIFIER)
-        else:
-            subroutine_full_name = f'{self.jack_tokenizer.src_base_name}{DOT}{subroutine_full_name}'
 
         # now subroutine is (className | varName).subroutineName
         self._handle_subroutine_call_xml(subroutine_full_name)
         # (expressionList)
-        self._handle_expr_or_expr_list_within_paren(self.compile_expression_list)
+        self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
+        self._eat(LEFT_PAREN)
+
+        n_args = self.compile_expression_list()
+        self.vm_stream.write_call(name=subroutine_full_name, n_args=n_args)
+        # discard void functions return value (I guess only relevant in do statements)
+        self.vm_stream.write_pop("temp", 0)
+
+        self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
+        self._eat(RIGHT_PAREN)
 
         # ;
         self.xml_stream.write_tag_value(SYMBOL, SEMI_COLON)
@@ -716,7 +767,7 @@ class CompilationEngine:
         self.xml_stream.write_close_tag('doStatement')
 
     def _handle_subroutine_call_xml(self, subroutine_full_name):
-        obj, subroutine = subroutine_full_name.split('.')
+        obj, subroutine = subroutine_full_name.split('.') if '.' in subroutine_full_name else ['', subroutine_full_name]
         if self.symbol_table.contains(obj):
             self.xml_stream.write_open_tag(IDENTIFIER)
             self.xml_stream.reindent()
@@ -762,8 +813,13 @@ class CompilationEngine:
         self._eat(RETURN)
 
         # expression?
-        if self.current_token_value != SEMI_COLON:
+        if self.current_token_value == SEMI_COLON:
+            # every func in jack must return something (we use 0 as dummy return)
+            self.vm_stream.write_push("constant", 0)
+        else:
             self.compile_expression()
+
+        self.vm_stream.write_return()
 
         # ;
         self.xml_stream.write_tag_value(SYMBOL, SEMI_COLON)
@@ -800,9 +856,11 @@ class CompilationEngine:
 
         # (op term)*
         while self.current_token_value in OP:
+            operation = VM_OPERATIONS.get(self.current_token_value, self.current_token_value)
             self.xml_stream.write_tag_value(SYMBOL, self.current_token_value)
             self._eat(self.current_token_value)
             self.compile_term()
+            self.vm_stream.write_arithmetic(operation)
 
         # </expression>
         self.xml_stream.deindent()
@@ -839,25 +897,65 @@ class CompilationEngine:
             self._eat(current_token_value)
             self.compile_term()
         elif current_token_value == LEFT_PAREN:  # '(' expression ')'
-            self._handle_expr_or_expr_list_within_paren(self.compile_expression)
+            self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
+            self._eat(LEFT_PAREN)
+            self.compile_expression()
+            self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
+            self._eat(RIGHT_PAREN)
         else:  # identifier
             current_token_value = self.current_token_value
             self._eat(IDENTIFIER)
             next_token_value = self.current_token_value
 
+            # subroutineCall: bar(expressionList)
+            if next_token_value == LEFT_PAREN:
+                self._handle_subroutine_call_xml(current_token_value)
+                # self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
+                self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
+                self._eat(LEFT_PAREN)
+                n_args = self.compile_expression_list()
+                self.vm_stream.write_call(name=current_token_value, n_args=n_args)
+                self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
+                self._eat(RIGHT_PAREN)
+
+            # subroutineCall: foo.bar(expressionList) | Foo.bar(expressionList)
+            elif next_token_value == DOT:
+                if not (current_token_value == self.jack_tokenizer.src_base_name
+                        or str.isupper(current_token_value[0])):
+                    if self.symbol_table.contains(current_token_value):
+                        self._handle_lookup_var_xml(current_token_value)
+                        self.vm_stream.write_push(
+                            self.symbol_table.kind_of(current_token_value),
+                            self.symbol_table.index_of(current_token_value)
+                        )
+                    else:
+                        raise CompileException(f"{current_token_value} is not defined")
+                # TODO: handle this # (Foo|Baz).bar(expressionList)
+
+                subroutine_full_name = current_token_value + DOT
+                # self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
+                # self.xml_stream.write_tag_value(SYMBOL, DOT)
+                self._eat(DOT)
+                # self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
+                subroutine_full_name += self.current_token_value
+                self._handle_subroutine_call_xml(subroutine_full_name)
+                self._eat(IDENTIFIER)
+
+                self.xml_stream.write_tag_value(SYMBOL, LEFT_PAREN)
+                self._eat(LEFT_PAREN)
+                n_args = self.compile_expression_list()
+                self.vm_stream.write_call(name=subroutine_full_name, n_args=n_args)
+                self.xml_stream.write_tag_value(SYMBOL, RIGHT_PAREN)
+                self._eat(RIGHT_PAREN)
+
             # varName'[' expression ']'
-            if next_token_value == LEFT_BRACKET:
+            elif next_token_value == LEFT_BRACKET:
                 if self.symbol_table.contains(current_token_value):
-                    self.xml_stream.write_open_tag(IDENTIFIER)
-                    self.xml_stream.reindent()
-                    self.xml_stream.write_tag_value(tags={
-                        "name": current_token_value,
-                        "kind": self.symbol_table.kind_of(current_token_value),
-                        "index": self.symbol_table.index_of(current_token_value),
-                        "context": "use"
-                    })
-                    self.xml_stream.deindent()
-                    self.xml_stream.write_close_tag(IDENTIFIER)
+                    self._handle_lookup_var_xml(current_token_value)
+                    self.vm_stream.write_push(
+                        self.symbol_table.kind_of(current_token_value),
+                        self.symbol_table.index_of(current_token_value)
+                    )
                 else:
                     raise CompileException(f"{current_token_value} is not defined")
 
@@ -867,36 +965,14 @@ class CompilationEngine:
                 self.compile_expression()
                 self.xml_stream.write_tag_value(SYMBOL, RIGHT_BRACKET)
                 self._eat(RIGHT_BRACKET)
-            # subroutineCall: foo.bar(expressionList) | Foo.bar(expressionList)
-            elif next_token_value == DOT:
-                subroutine_full_name = current_token_value + DOT
-                # self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
-                # self.xml_stream.write_tag_value(SYMBOL, DOT)
-                self._eat(DOT)
-                # self.xml_stream.write_tag_value(IDENTIFIER, self.current_token_value)
-                subroutine_full_name += self.current_token_value
-                self._handle_subroutine_call_xml(subroutine_full_name)
-                self._eat(IDENTIFIER)
-                self._handle_expr_or_expr_list_within_paren(self.compile_expression_list)
-            # subroutineCall: bar(expressionList)
-            elif next_token_value == LEFT_PAREN:
-                subroutine_full_name = f'{self.jack_tokenizer.src_base_name}{DOT}{self.current_token_value}'
-                self._handle_subroutine_call_xml(subroutine_full_name)
-                # self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
-                self._handle_expr_or_expr_list_within_paren(self.compile_expression_list)
             # foo
             else:
                 if self.symbol_table.contains(current_token_value):
-                    self.xml_stream.write_open_tag(IDENTIFIER)
-                    self.xml_stream.reindent()
-                    self.xml_stream.write_tag_value(tags={
-                        "name": current_token_value,
-                        "kind": self.symbol_table.kind_of(current_token_value),
-                        "index": self.symbol_table.index_of(current_token_value),
-                        "context": "use"
-                    })
-                    self.xml_stream.deindent()
-                    self.xml_stream.write_close_tag(IDENTIFIER)
+                    self._handle_lookup_var_xml(current_token_value)
+                    self.vm_stream.write_push(
+                        self.symbol_table.kind_of(current_token_value),
+                        self.symbol_table.index_of(current_token_value)
+                    )
                 else:
                     raise CompileException(f"{current_token_value} is not defined")
                 # self.xml_stream.write_tag_value(IDENTIFIER, current_token_value)
@@ -905,18 +981,32 @@ class CompilationEngine:
         self.xml_stream.deindent()
         self.xml_stream.write_close_tag('term')
 
+    def _handle_lookup_var_xml(self, var):
+        self.xml_stream.write_open_tag(IDENTIFIER)
+        self.xml_stream.reindent()
+        self.xml_stream.write_tag_value(tags={
+            "name": var,
+            "kind": self.symbol_table.kind_of(var),
+            "index": self.symbol_table.index_of(var),
+            "context": "use"
+        })
+        self.xml_stream.deindent()
+        self.xml_stream.write_close_tag(IDENTIFIER)
+
     def compile_expression_list(self):
         """
-        compile jack expression list
+        compile jack expression list and return number of expressions compiled
         """
         # <expressionList>
         self.xml_stream.write_open_tag('expressionList')
         self.xml_stream.reindent()
 
         # (expression (',' expression)*)?
+        n_expressions = 0
         if not self.current_token_value == RIGHT_PAREN:
             while True:
                 self.compile_expression()
+                n_expressions += 1
                 if not self.current_token_value == COMMA:
                     break
                 self.xml_stream.write_tag_value(SYMBOL, COMMA)
@@ -925,6 +1015,8 @@ class CompilationEngine:
         # </expressionList>
         self.xml_stream.deindent()
         self.xml_stream.write_close_tag('expressionList')
+
+        return n_expressions
 
 
 # TODO: implement

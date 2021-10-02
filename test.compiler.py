@@ -9,18 +9,18 @@ class SymbolTableTest(unittest.TestCase):
 
     def test_define(self):
         table = self.test_symbol_table
-        for kind in JVarKind:
+        for kind in ["static", "field", "local", "argument"]:
             self.assertEqual(table.var_count(kind), 0)
-        table.define("x", INT, JVarKind.static)
-        self._assertOnlyVarInSymbolTable("x", INT, JVarKind.static)
+        table.define("x", INT, "static")
+        self._assertOnlyVarInSymbolTable("x", INT, "static")
         table.start_subroutine()
-        self.assertEqual(table.var_count(JVarKind.local), 0)
-        self.assertEqual(table.var_count(JVarKind.argument), 0)
-        self._assertOnlyVarInSymbolTable("x", INT, JVarKind.static)
-        table.define("local", CHAR, JVarKind.local)
-        self.assertEqual(table.var_count(JVarKind.local), 1)
-        table.define("m", CHAR, JVarKind.local)
-        self.assertEqual(table.var_count(JVarKind.local), 2)
+        self.assertEqual(table.var_count("local"), 0)
+        self.assertEqual(table.var_count("argument"), 0)
+        self._assertOnlyVarInSymbolTable("x", INT, "static")
+        table.define("local", CHAR, "local")
+        self.assertEqual(table.var_count("local"), 1)
+        table.define("m", CHAR, "local")
+        self.assertEqual(table.var_count("local"), 2)
 
     def test_kind_of(self):
         table = self.test_symbol_table
@@ -31,8 +31,8 @@ class SymbolTableTest(unittest.TestCase):
             CompileException,
             kind_of_raises_error,
         )
-        table.define("x", INT, JVarKind.static)
-        self.assertEqual(table.kind_of("x"), JVarKind.static)
+        table.define("x", INT, "static")
+        self.assertEqual(table.kind_of("x"), "static")
 
     def _assertOnlyVarInSymbolTable(self, var, _type, kind):
         table = self.test_symbol_table
