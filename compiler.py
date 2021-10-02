@@ -14,7 +14,7 @@ WHILE_END = "WHILE_END"
 WHILE_EXP = 'WHILE_EXP'
 
 SRC_FILE_EXT = '.jack'
-VM_FILE_EXT = '_test.vm'
+VM_FILE_EXT = '.vm'
 NEWLINE = '\n'
 INDENT_NUM_SPACES = 2
 
@@ -165,6 +165,11 @@ class CompilationEngine:
     def current_token_type(self):
         return self.current_token.type
 
+    def get_next_label(self, label_prefix):
+        index = self.labels_indices.setdefault(label_prefix, -1) + 1
+        self.labels_indices[label_prefix] = index
+        return f'{label_prefix}{index}'
+
     def _eat(self, s):
         """advance to next token if given string is same as the current token, otherwise raise error
         Args:
@@ -227,10 +232,11 @@ class CompilationEngine:
         ASSUME: only called if current token's value is static or field
         """
         # <classVarDec>
-       # field | static
-        kind = None
+        # field | static
         if self.current_token_value in (STATIC, FIELD):
             kind = self.current_token_value
+            _type, name = self._handle_type_var_name()
+            self.symbol_table.define(name=name, _type=_type, kind=kind)
             self._eat(self.current_token_value)
 
         # varName
@@ -276,11 +282,7 @@ class CompilationEngine:
             self._eat(IDENTIFIER)
 
         # subroutineName
-
-        # TODO: How to get n_vars before compiling the subroutine body
-        n_vars = -1
-        self.vm_stream.write_function(f'{self.jack_tokenizer.src_base_name}.{self.current_token_value}', n_vars)
-
+        subroutine_name = self.current_token_value
         self._eat(IDENTIFIER)
 
         # (
@@ -296,8 +298,18 @@ class CompilationEngine:
         # )
         self._eat(RIGHT_PAREN)
 
-        # subroutineBody
-        self.compile_subroutine_body()
+        # <subroutineBody>
+        # {
+        self._eat(LEFT_BRACE)
+        while self.current_token_value == VAR:  # order matters, simplify
+            self.compile_var_dec()
+        n_vars = self.symbol_table.var_count(LOCAL)
+        self.vm_stream.write_function(f'{self.jack_tokenizer.src_base_name}.{subroutine_name}', n_vars)
+
+        self.compile_statements()
+        # }
+        self._eat(RIGHT_BRACE)
+        # </subroutineBody>
 
         # </subroutineDec>
 
@@ -316,27 +328,24 @@ class CompilationEngine:
             else:
                 break
             name = self.current_token_value
+            self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
             self._eat(IDENTIFIER)
             if not self.current_token_value == COMMA:
                 break
             self._eat(COMMA)
 
-    def compile_subroutine_body(self):
-        """compile a jack subroutine body which is varDec* statements
-        """
-        # <subroutineBody>
-        # {
-        self._eat(LEFT_BRACE)
-
-        while self.current_token_value == VAR:  # order matters, simplify
-            self.compile_var_dec()
-
-        self.compile_statements()
-
-        # }
-        self._eat(RIGHT_BRACE)
-
-        # </subroutineBody>
+    # def compile_subroutine_body(self):
+    #     """compile a jack subroutine body which is varDec* statements
+    #     """
+    #     # <subroutineBody>
+    #     # {
+    #     self._eat(LEFT_BRACE)
+    #     while self.current_token_value == VAR:  # order matters, simplify
+    #         self.compile_var_dec()
+    #     self.compile_statements()
+    #     # }
+    #     self._eat(RIGHT_BRACE)
+    #     # </subroutineBody>
 
     def compile_var_dec(self):
         """compile jack variable declaration, varDec*, only called if current token is var
@@ -387,6 +396,12 @@ class CompilationEngine:
             self.compile_expression()
             self._eat(RIGHT_BRACKET)
 
+        # =
+        self._eat(EQUAL_SIGN)
+
+        # expression
+        self.compile_expression()
+
         if self.symbol_table.contains(name):
             self.vm_stream.write_pop(
                 self.symbol_table.kind_of(name),
@@ -394,11 +409,6 @@ class CompilationEngine:
             )
         else:
             raise CompileException(f"{name} is not defined")
-        # =
-        self._eat(EQUAL_SIGN)
-
-        # expression
-        self.compile_expression()
 
         # ;
         self._eat(SEMI_COLON)
@@ -410,6 +420,9 @@ class CompilationEngine:
         compile jack if statement
         """
 
+        label_if_true = self.get_next_label(IF_TRUE)
+        label_if_false = self.get_next_label(IF_FALSE)
+
         # <ifStatement>
         # if
         self._eat(IF)
@@ -419,25 +432,22 @@ class CompilationEngine:
         self.compile_expression()
         self._eat(RIGHT_PAREN)
 
-        index = self.labels_indices.setdefault(IF_TRUE, -1) + 1
-        label_if_true = f'{IF_TRUE}{index}'
-        index = self.labels_indices.setdefault(IF_FALSE, -1) + 1
-        label_if_false = f'{IF_FALSE}{index}'
-
         self.vm_stream.write_arithmetic("not")
         self.vm_stream.write_if_goto(label_if_false)
+        # {statements1}
+        self._handle_statements_within_braces()
 
         self.vm_stream.write_goto(label_if_true)
-        # {statements}
-        self._handle_statements_within_braces()
 
         self.vm_stream.write_label(label_if_false)
         if self.current_token_value == ELSE:
             self._eat(ELSE)
+            # {statements2}
             self._handle_statements_within_braces()
         self.vm_stream.write_label(label_if_true)
 
         # <ifStatement>/
+
     def _handle_statements_within_braces(self):
         # {
         self._eat(LEFT_BRACE)
@@ -457,10 +467,8 @@ class CompilationEngine:
         # while
         self._eat(WHILE)
 
-        index = self.labels_indices.setdefault(WHILE_EXP, -1) + 1
-        label_while_exp = f'{WHILE_EXP}{index}'
-        index = self.labels_indices.setdefault(WHILE_END, -1) + 1
-        label_while_end = f'{WHILE_END}{index}'
+        label_while_exp = self.get_next_label(WHILE_EXP)
+        label_while_end = self.get_next_label(WHILE_END)
 
         self.vm_stream.write_label(label_while_exp)
 
@@ -578,18 +586,28 @@ class CompilationEngine:
             self.vm_stream.write_push("constant", current_token_value)
             self._eat(INT_CONSTANT)
         elif current_token_type == STR_CONSTANT:
-            current_value = current_token_value
+            current_value = current_token_value.strip('"')
             self.vm_stream.write_push("constant", len(current_value))
             self.vm_stream.write_call("String.new", 1)
             for c in current_value:
-                self.vm_stream.write_call("String.appendChar", 2)
                 self.vm_stream.write_push("constant", ord(c))
+                self.vm_stream.write_call("String.appendChar", 2)
             self._eat(STR_CONSTANT)
         elif current_token_value in KEYWORD_CONSTANT:
+            if current_token_value == NULL or current_token_value == FALSE:
+                self.vm_stream.write_push("constant", 0)
+            elif current_token_value == TRUE:
+                self.vm_stream.write_push("constant", 0)
+                self.vm_stream.write_arithmetic("not")
+            elif current_token_value == THIS:
+                # TODO: handle THIS
+                pass
             self._eat(current_token_value)
         elif current_token_value in UNARY_OP:
+            vm_command = "not" if current_token_value == TILDE else "neg"
             self._eat(current_token_value)
             self.compile_term()
+            self.vm_stream.write_arithmetic(vm_command)
         elif current_token_value == LEFT_PAREN:  # '(' expression ')'
             self._eat(LEFT_PAREN)
             self.compile_expression()
@@ -720,9 +738,8 @@ class JVariable(NamedTuple):
 class SymbolTable:
     def __init__(self):
         self._class_level_data = []
-        self._class_level_index = 0
+        self._local_index = self._argument_index = self._field_index = self._static_index = 0
         self._sub_level_data = []
-        self._sub_level_index = 0
 
     def __str__(self):
         return self.__repr__()
@@ -738,7 +755,7 @@ class SymbolTable:
     # starts a new subroutine scope
     def start_subroutine(self):
         self._sub_level_data = []
-        self._sub_level_index = 0
+        self._local_index = self._argument_index = 0
 
     # defines a new identifier of given parameters and assign it a running index
     def define(self, name: str, _type: str, kind: Optional[str]):
@@ -746,14 +763,22 @@ class SymbolTable:
             if not arg:
                 raise CompileException(f"'{arg}' is not a valid variable name")
 
-        if kind in (FIELD, STATIC):
-            j_var = JVariable(name, _type, kind, self._class_level_index)
-            self._class_level_data.append(j_var)
-            self._class_level_index += 1
-        if kind in (LOCAL, ARGUMENT):
-            j_var = JVariable(name, _type, kind, self._sub_level_index)
-            self._sub_level_index += 1
+        if kind == LOCAL:
+            j_var = JVariable(name, _type, kind, self._local_index)
+            self._local_index += 1
             self._sub_level_data.append(j_var)
+        elif kind == ARGUMENT:
+            j_var = JVariable(name, _type, kind, self._argument_index)
+            self._argument_index += 1
+            self._sub_level_data.append(j_var)
+        elif kind == FIELD:
+            j_var = JVariable(name, _type, kind, self._field_index)
+            self._field_index += 1
+            self._class_level_data.append(j_var)
+        elif kind == STATIC:
+            j_var = JVariable(name, _type, kind, self._static_index)
+            self._static_index += 1
+            self._class_level_data.append(j_var)
 
         print(f"{name} added to symbol table")
         print(self.__str__())
