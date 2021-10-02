@@ -165,6 +165,10 @@ class CompilationEngine:
     def current_token_type(self):
         return self.current_token.type
 
+    @property
+    def current_class_name(self):
+        return self.jack_tokenizer.src_base_name
+
     def get_next_label(self, label_prefix):
         index = self.labels_indices.setdefault(label_prefix, -1) + 1
         self.labels_indices[label_prefix] = index
@@ -204,10 +208,10 @@ class CompilationEngine:
 
         # className
         try:
-            assert self.current_token_value == self.jack_tokenizer.src_base_name
+            assert self.current_token_value == self.current_class_name
         except AssertionError:
             raise CompileException(
-                f"class {self.current_token_value} does not match filename {self.jack_tokenizer.src_base_name}")
+                f"class {self.current_token_value} does not match filename {self.current_class_name}")
         self._eat(IDENTIFIER)
 
         # {
@@ -233,11 +237,13 @@ class CompilationEngine:
         """
         # <classVarDec>
         # field | static
+        kind = None
         if self.current_token_value in (STATIC, FIELD):
             kind = self.current_token_value
-            _type, name = self._handle_type_var_name()
-            self.symbol_table.define(name=name, _type=_type, kind=kind)
             self._eat(self.current_token_value)
+
+        for _type, name in self._handle_type_var_name():
+            self.symbol_table.define(name=name, _type=_type, kind=kind)
 
         # varName
         # </classVarDec>
@@ -271,9 +277,9 @@ class CompilationEngine:
         """
         # <subroutineDec>
         # constructor | function | method
-        subroutine = self.current_token_value
-        if subroutine in (CONSTRUCTOR, FUNCTION, METHOD):
-            self._eat(subroutine)
+        subroutine_type = self.current_token_value
+        if subroutine_type in (CONSTRUCTOR, FUNCTION, METHOD):
+            self._eat(subroutine_type)
 
         # builtin type | className
         if self.current_token_value in (VOID, INT, CHAR, BOOLEAN):
@@ -288,9 +294,9 @@ class CompilationEngine:
         # (
         self._eat(LEFT_PAREN)
 
-        # add this as argument in case the subroutine is a constructor or a method
-        if subroutine in (CONSTRUCTOR, METHOD):
-            self.symbol_table.define(name=THIS, _type=self.jack_tokenizer.src_base_name, kind=ARGUMENT)
+        # add this as argument in case the subroutine_type is a method
+        if subroutine_type == METHOD:
+            self.symbol_table.define(name=THIS, _type=self.current_class_name, kind=ARGUMENT)
 
         # parameterList
         self.compile_parameter_list()
@@ -304,7 +310,18 @@ class CompilationEngine:
         while self.current_token_value == VAR:  # order matters, simplify
             self.compile_var_dec()
         n_vars = self.symbol_table.var_count(LOCAL)
-        self.vm_stream.write_function(f'{self.jack_tokenizer.src_base_name}.{subroutine_name}', n_vars)
+        self.vm_stream.write_function(f'{self.current_class_name}.{subroutine_name}', n_vars)
+
+        # special handling of the constructor
+        if subroutine_type == CONSTRUCTOR:
+            # initialization
+            n_fields = self.symbol_table.var_count(FIELD)
+            self.vm_stream.write_push("constant", n_fields)
+            self.vm_stream.write_call("Memory.alloc", n_args=1)
+            self.vm_stream.write_pop("pointer", 0)
+        elif subroutine_type == METHOD:  # THIS = argument 0
+            self.vm_stream.write_push("argument", 0)
+            self.vm_stream.write_pop("pointer", 0)
 
         self.compile_statements()
         # }
@@ -390,26 +407,37 @@ class CompilationEngine:
         name = self.current_token_value
         self._eat(IDENTIFIER)
 
-        # ( '[' expression ']')?
+        # ( '[' expression ']')? - a bit involved to avoid arr1[exp1] = exp2 where exp2 might be arr2[exp3] writing
+        # to THAT at same time
         if self.current_token_value == LEFT_BRACKET:
+            if self.symbol_table.contains(name):
+                kind = self.symbol_table.kind_of(name)
+                kind = THIS if kind == FIELD else kind
+                index = self.symbol_table.index_of(name)
+                self.vm_stream.write_push(kind, index)  # arr1
             self._eat(LEFT_BRACKET)
-            self.compile_expression()
+            self.compile_expression()  # exp1
+            self.vm_stream.write_arithmetic("add")
             self._eat(RIGHT_BRACKET)
-
-        # =
-        self._eat(EQUAL_SIGN)
-
-        # expression
-        self.compile_expression()
-
-        if self.symbol_table.contains(name):
-            self.vm_stream.write_pop(
-                self.symbol_table.kind_of(name),
-                self.symbol_table.index_of(name)
-            )
+            self._eat(EQUAL_SIGN)
+            self.compile_expression()  # exp2
+            self.vm_stream.write_pop("temp", 0)
+            self.vm_stream.write_pop("pointer", 1)
+            self.vm_stream.write_push("temp", 0)
+            self.vm_stream.write_pop(THAT, 0)
         else:
-            raise CompileException(f"{name} is not defined")
+            # =
+            self._eat(EQUAL_SIGN)
+            # expression
+            self.compile_expression()
 
+            if self.symbol_table.contains(name):
+                kind = self.symbol_table.kind_of(name)
+                kind = THIS if kind == FIELD else kind
+                index = self.symbol_table.index_of(name)
+                self.vm_stream.write_pop(kind, index)
+            else:
+                raise CompileException(f"{name} is not defined")
         # ;
         self._eat(SEMI_COLON)
 
@@ -496,31 +524,53 @@ class CompilationEngine:
         # <doStatement>
         # do
         self._eat(DO)
-
-        # TODO: could be refactored
         # subroutineName | (className | varName)'.'subroutineName
-        subroutine_full_name = self.current_token_value
+        first_token = self.current_token_value
         self._eat(IDENTIFIER)
-        # check if '.'
-        if self.current_token_value == DOT:
-            self._eat(DOT)
-            subroutine_full_name += f'{DOT}{self.current_token_value}'
-            self._eat(IDENTIFIER)
-
-        # now subroutine is (className | varName).subroutineName
-        # (expressionList)
-        self._eat(LEFT_PAREN)
-
-        n_args = self.compile_expression_list()
-        self.vm_stream.write_call(name=subroutine_full_name, n_args=n_args)
-        # discard void functions return value (I guess only relevant in do statements)
+        look_ahead_token = self.current_token_value
+        self._compile_subroutine_call(first_token, look_ahead_token)
         self.vm_stream.write_pop("temp", 0)
-
-        self._eat(RIGHT_PAREN)
-
         # ;
         self._eat(SEMI_COLON)
         # </doStatement>
+
+    def _compile_subroutine_call(self, first_token, look_ahead_token):
+        # TODO: refactor later
+        # subroutineName | (className | varName)'.'subroutineName
+        n_args = 0
+        if look_ahead_token != DOT:  # bar()
+            class_name = self.current_class_name
+            subroutine_name = first_token
+            self.vm_stream.write_push("pointer", 0)  # pushing current object as 1st arg
+            n_args += 1
+        elif first_token.lower() == first_token:  # obj.bar()
+            self._eat(DOT)
+            subroutine_name = self.current_token_value
+            self._eat(IDENTIFIER)
+            if self.symbol_table.contains(first_token):
+                class_name = self.symbol_table.type_of(first_token)
+                kind = self.symbol_table.kind_of(first_token)
+                kind = THIS if kind == FIELD else kind
+                index = self.symbol_table.index_of(first_token)
+                self.vm_stream.write_push(kind, index)
+            else:
+                raise CompileException(f"{first_token} is not defined")
+            n_args += 1
+        else:  # Foo.bar()
+            class_name = first_token
+            self._eat(DOT)
+            subroutine_name = self.current_token_value
+            self._eat(IDENTIFIER)
+
+        subroutine_full_name = f'{class_name}.{subroutine_name}'
+
+        # (expressionList)
+        self._eat(LEFT_PAREN)
+
+        n_args += self.compile_expression_list()
+        self.vm_stream.write_call(name=subroutine_full_name, n_args=n_args)
+
+        self._eat(RIGHT_PAREN)
 
     def compile_return_statement(self):
         """
@@ -600,8 +650,7 @@ class CompilationEngine:
                 self.vm_stream.write_push("constant", 0)
                 self.vm_stream.write_arithmetic("not")
             elif current_token_value == THIS:
-                # TODO: handle THIS
-                pass
+                self.vm_stream.write_push("pointer", 0)
             self._eat(current_token_value)
         elif current_token_value in UNARY_OP:
             vm_command = "not" if current_token_value == TILDE else "neg"
@@ -613,62 +662,38 @@ class CompilationEngine:
             self.compile_expression()
             self._eat(RIGHT_PAREN)
         else:  # identifier
-            current_token_value = self.current_token_value
+            first_token = self.current_token_value
             self._eat(IDENTIFIER)
-            next_token_value = self.current_token_value
+            look_ahead_token = self.current_token_value
 
-            # subroutineCall: bar(expressionList)
-            if next_token_value == LEFT_PAREN:
-                self._eat(LEFT_PAREN)
-                n_args = self.compile_expression_list()
-                self.vm_stream.write_call(name=current_token_value, n_args=n_args)
-                self._eat(RIGHT_PAREN)
-
-            # subroutineCall: foo.bar(expressionList) | Foo.bar(expressionList)
-            elif next_token_value == DOT:
-                if not (current_token_value == self.jack_tokenizer.src_base_name
-                        or str.isupper(current_token_value[0])):
-                    if self.symbol_table.contains(current_token_value):
-                        self.vm_stream.write_push(
-                            self.symbol_table.kind_of(current_token_value),
-                            self.symbol_table.index_of(current_token_value)
-                        )
-                    else:
-                        raise CompileException(f"{current_token_value} is not defined")
-                # TODO: handle this # (Foo|Baz).bar(expressionList)
-
-                subroutine_full_name = current_token_value + DOT
-                self._eat(DOT)
-                subroutine_full_name += self.current_token_value
-                self._eat(IDENTIFIER)
-
-                self._eat(LEFT_PAREN)
-                n_args = self.compile_expression_list()
-                self.vm_stream.write_call(name=subroutine_full_name, n_args=n_args)
-                self._eat(RIGHT_PAREN)
-
+            # subroutineName | (className | varName)'.'subroutineName
+            if look_ahead_token == LEFT_PAREN or look_ahead_token == DOT:
+                self._compile_subroutine_call(first_token, look_ahead_token)
             # varName'[' expression ']'
-            elif next_token_value == LEFT_BRACKET:
-                if self.symbol_table.contains(current_token_value):
-                    self.vm_stream.write_push(
-                        self.symbol_table.kind_of(current_token_value),
-                        self.symbol_table.index_of(current_token_value)
-                    )
+            elif look_ahead_token == LEFT_BRACKET:
+                if self.symbol_table.contains(first_token):
+                    kind = self.symbol_table.kind_of(first_token)
+                    kind = THIS if kind == FIELD else kind
+                    index = self.symbol_table.index_of(first_token)
+                    self.vm_stream.write_push(kind, index)
                 else:
-                    raise CompileException(f"{current_token_value} is not defined")
+                    raise CompileException(f"{first_token} is not defined")
 
                 self._eat(LEFT_BRACKET)
                 self.compile_expression()
+                self.vm_stream.write_arithmetic("add")
+                self.vm_stream.write_pop("pointer", 1)
+                self.vm_stream.write_push(THAT, 0)
                 self._eat(RIGHT_BRACKET)
             # foo
             else:
-                if self.symbol_table.contains(current_token_value):
-                    self.vm_stream.write_push(
-                        self.symbol_table.kind_of(current_token_value),
-                        self.symbol_table.index_of(current_token_value)
-                    )
+                if self.symbol_table.contains(first_token):
+                    kind = self.symbol_table.kind_of(first_token)
+                    kind = THIS if kind == FIELD else kind
+                    index = self.symbol_table.index_of(first_token)
+                    self.vm_stream.write_push(kind, index)
                 else:
-                    raise CompileException(f"{current_token_value} is not defined")
+                    raise CompileException(f"{first_token} is not defined")
         # </term>
 
     def compile_expression_list(self):
@@ -780,9 +805,6 @@ class SymbolTable:
             self._static_index += 1
             self._class_level_data.append(j_var)
 
-        print(f"{name} added to symbol table")
-        print(self.__str__())
-
     def var_count(self, kind: str):
         """
         return the number of variables of the given kind
@@ -790,9 +812,9 @@ class SymbolTable:
         :return: number of variables of kind in symbol table
         """
         if kind in (FIELD, STATIC):
-            return sum(kind is var.kind for var in self._class_level_data)
+            return sum(kind == var.kind for var in self._class_level_data)
         if kind in (LOCAL, ARGUMENT):
-            return sum(kind is var.kind for var in self._sub_level_data)
+            return sum(kind == var.kind for var in self._sub_level_data)
         raise CompileException(f"{kind} is not supported!")
 
     def kind_of(self, var: str):
