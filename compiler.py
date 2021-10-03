@@ -7,6 +7,7 @@ from typing import NamedTuple, TextIO, Optional
 
 from constants import *
 
+
 class ParseException(Exception):
     pass
 
@@ -398,11 +399,10 @@ class CompilationEngine:
         # ( '[' expression ']')? - a bit involved to avoid arr1[exp1] = exp2 where exp2 might be arr2[exp3] writing
         # to THAT at same time
         if self.current_token_value == LEFT_BRACKET:
-            if self.symbol_table.contains(name):
-                kind = self.symbol_table.kind_of(name)
-                kind = THIS if kind == FIELD else kind
-                index = self.symbol_table.index_of(name)
-                self.vm_stream.write_push(kind, index)  # arr1
+            kind = self.symbol_table.kind_of(name)
+            kind = THIS if kind == FIELD else kind
+            index = self.symbol_table.index_of(name)
+            self.vm_stream.write_push(kind, index)  # arr1
             self._eat(LEFT_BRACKET)
             self.compile_expression()  # exp1
             self.vm_stream.write_arithmetic("add")
@@ -419,13 +419,10 @@ class CompilationEngine:
             # expression
             self.compile_expression()
 
-            if self.symbol_table.contains(name):
-                kind = self.symbol_table.kind_of(name)
-                kind = THIS if kind == FIELD else kind
-                index = self.symbol_table.index_of(name)
-                self.vm_stream.write_pop(kind, index)
-            else:
-                raise CompileException(f"{name} is not defined")
+            kind = self.symbol_table.kind_of(name)
+            kind = THIS if kind == FIELD else kind
+            index = self.symbol_table.index_of(name)
+            self.vm_stream.write_pop(kind, index)
         # ;
         self._eat(SEMI_COLON)
 
@@ -523,7 +520,6 @@ class CompilationEngine:
         # </doStatement>
 
     def _compile_subroutine_call(self, first_token, look_ahead_token):
-        # TODO: refactor later
         # subroutineName | (className | varName)'.'subroutineName
         n_args = 0
         if look_ahead_token != DOT:  # bar()
@@ -535,14 +531,11 @@ class CompilationEngine:
             self._eat(DOT)
             subroutine_name = self.current_token_value
             self._eat(IDENTIFIER)
-            if self.symbol_table.contains(first_token):
-                class_name = self.symbol_table.type_of(first_token)
-                kind = self.symbol_table.kind_of(first_token)
-                kind = THIS if kind == FIELD else kind
-                index = self.symbol_table.index_of(first_token)
-                self.vm_stream.write_push(kind, index)
-            else:
-                raise CompileException(f"{first_token} is not defined")
+            class_name = self.symbol_table.type_of(first_token)
+            kind = self.symbol_table.kind_of(first_token)
+            kind = THIS if kind == FIELD else kind
+            index = self.symbol_table.index_of(first_token)
+            self.vm_stream.write_push(kind, index)
             n_args += 1
         else:  # Foo.bar()
             class_name = first_token
@@ -585,8 +578,6 @@ class CompilationEngine:
     def compile_expression(self):
         """
         compile jack expression
-        """
-        """
         if exp is a number n:
             output "push n"
         if exp is a variable var:
@@ -600,6 +591,7 @@ class CompilationEngine:
             codeWrite(exp2),...,
             output "call f"
         """
+
         # <expression>
         # term
         self.compile_term()
@@ -657,31 +649,20 @@ class CompilationEngine:
             # subroutineName | (className | varName)'.'subroutineName
             if look_ahead_token == LEFT_PAREN or look_ahead_token == DOT:
                 self._compile_subroutine_call(first_token, look_ahead_token)
-            # varName'[' expression ']'
-            elif look_ahead_token == LEFT_BRACKET:
-                if self.symbol_table.contains(first_token):
-                    kind = self.symbol_table.kind_of(first_token)
-                    kind = THIS if kind == FIELD else kind
-                    index = self.symbol_table.index_of(first_token)
-                    self.vm_stream.write_push(kind, index)
-                else:
-                    raise CompileException(f"{first_token} is not defined")
-
-                self._eat(LEFT_BRACKET)
-                self.compile_expression()
-                self.vm_stream.write_arithmetic("add")
-                self.vm_stream.write_pop("pointer", 1)
-                self.vm_stream.write_push(THAT, 0)
-                self._eat(RIGHT_BRACKET)
             # foo
             else:
-                if self.symbol_table.contains(first_token):
-                    kind = self.symbol_table.kind_of(first_token)
-                    kind = THIS if kind == FIELD else kind
-                    index = self.symbol_table.index_of(first_token)
-                    self.vm_stream.write_push(kind, index)
-                else:
-                    raise CompileException(f"{first_token} is not defined")
+                kind = self.symbol_table.kind_of(first_token)
+                kind = THIS if kind == FIELD else kind
+                index = self.symbol_table.index_of(first_token)
+                self.vm_stream.write_push(kind, index)
+                # foo'[' expression ']'
+                if look_ahead_token == LEFT_BRACKET:
+                    self._eat(LEFT_BRACKET)
+                    self.compile_expression()
+                    self.vm_stream.write_arithmetic("add")
+                    self.vm_stream.write_pop("pointer", 1)
+                    self.vm_stream.write_push(THAT, 0)
+                    self._eat(RIGHT_BRACKET)
         # </term>
 
     def compile_expression_list(self):
@@ -703,37 +684,12 @@ class CompilationEngine:
         return n_expressions
 
 
-# TODO: implement
 # Module 3: Symbol Table, we need 2: class-level and subroutine-level
 """ Symbol tables
 name    type    kind        #
 x       int     field       0
 y       int     field       1
 """
-
-
-# # helper enums
-# class JType(enum.Enum):
-#     JInt = 1
-#     JChar = 2
-#     JBoolean = 3
-#     JCustom = 4  # class name
-#
-
-# class JVarKind(enum.Enum):
-#     field = 1
-#     static = 2
-#     local = 3
-#     argument = 4
-# def __str__(self):
-#     return self.name
-#
-# def __repr__(self):
-#     return self.name
-
-# class JVarScope(enum.Enum):
-#     class_level = 1
-#     subroutine_level = 2
 
 
 class JVariable(NamedTuple):
@@ -836,12 +792,12 @@ class SymbolTable:
         index = self._get_var_property(var, 'index')
         if index is not None:
             return index
-        return -1
+        raise CompileException(f"{var} is not defined!")
 
-    def contains(self, var: str):
-        if self.index_of(var) == -1:
-            return False
-        return True
+    # def contains(self, var: str):
+    #     if self.index_of(var) == -1:
+    #         return False
+    #     return True
 
     def _get_var_property(self, var: str, _property: str):
         property_getter = attrgetter(_property)
