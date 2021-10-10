@@ -71,7 +71,10 @@ class JackTokenizer:
             elif token_type == 'newline':
                 line_number += 1
                 continue
-            elif token_type in ('space', 'comment'):
+            elif token_type == 'comment':
+                line_number += token_value.count('\n') 
+                continue 
+            elif token_type == 'space':
                 continue
             elif token_type == 'mismatch':
                 raise ParseException(
