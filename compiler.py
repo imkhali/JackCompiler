@@ -54,10 +54,7 @@ class JackTokenizer:
 
     def __init__(self, in_stream):
         self.in_stream = in_stream
-
-    @property
-    def src_base_name(self):
-        return os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
+        self.src_base_name = os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
 
     def start_tokenizer(self):
         line_number = 1
@@ -84,12 +81,11 @@ class JackTokenizer:
 
 # Module 4: VMWriter, generates VM code
 class Writer:
-    def __init__(self, out_stream: TextIO):
-        self.out_stream = out_stream
-
-    @property
-    def base_name(self):
-        return os.path.split(self.out_stream.name)[-1].rpartition('.')[0]
+    def __init__(self, out_stream: TextIO = None):
+        if out_stream is not None:
+            self.out_stream = out_stream
+        else:
+            self.out_stream = sys.stdout
 
 
 class VMWriter(Writer):
