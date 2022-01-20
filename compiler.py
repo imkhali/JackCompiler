@@ -60,9 +60,10 @@ class JackTokenizer:
         line_number = 1
         for m in self.jack_token.finditer(self.in_stream.read()):
             token_type = m.lastgroup
+            if token_type is None: raise ParseException('token type cannot be None')
             token_value = m.group(token_type)
             if token_type == 'integerConstant':
-                token_value = int(token_value)
+                token_value = token_value
             elif token_type == IDENTIFIER and token_value in self.KEYWORDS:
                 token_type = KEYWORD
             elif token_type == 'newline':
@@ -140,7 +141,7 @@ class CompilationEngine:
         self.tokens_stream = jack_tokenizer.start_tokenizer()
         self.vm_stream = vm_stream
         self.symbol_table = SymbolTable()
-        self.current_token = None
+        self.current_token = Token('', '', -1) # instead of none for easier type checking
 
         # labels indices
         self.labels_indices = {}
@@ -186,7 +187,8 @@ class CompilationEngine:
         """
         # first token
         try:
-            self.current_token = self.current_token or next(self.tokens_stream)
+            # self.current_token = self.current_token if self.current_token is not _init_token else next(self.tokens_stream)
+            self.current_token = next(self.tokens_stream)
         except StopIteration:  # jack source file is empty
             return
 
@@ -241,13 +243,15 @@ class CompilationEngine:
         :return: generator of jack variable (type, name)
         """
         # type
-        _type = None
         if self.current_token_value in {INT, CHAR, BOOLEAN}:
             _type = self.current_token_value
             self._eat(self.current_token_value)
         elif self.current_token_type == IDENTIFIER:
             _type = self.current_token_value
             self._eat(IDENTIFIER)
+        else:
+            raise CompileException(
+                f'Unidentified variable type: \'{self.current_token_value}\' in line {self.current_token.line_number}')
 
         # varName (, varName)*;
         while True:
@@ -612,7 +616,7 @@ class CompilationEngine:
         # <term>
         current_token_value, current_token_type = self.current_token_value, self.current_token_type
         if current_token_type == INT_CONSTANT:
-            self.vm_stream.write_push("constant", current_token_value)
+            self.vm_stream.write_push("constant", int(current_token_value))
             self._eat(INT_CONSTANT)
         elif current_token_type == STR_CONSTANT:
             current_value = current_token_value.strip('"')
