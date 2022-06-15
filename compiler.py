@@ -17,7 +17,7 @@ class CompileException(Exception):
 
 
 class Token(NamedTuple):
-    type: str
+    type_: str
     value: str
     line_number: int
 
@@ -49,8 +49,10 @@ class JackTokenizer:
     }
     jack_token = re.compile(
         '|'.join(
-            [r'(?P<{}>{})'.format(token, specification)
-             for token, specification in tokens_specifications.items()]))
+            r'(?P<{}>{})'.format(token, specification)
+             for token, specification in tokens_specifications.items()
+             )
+        )
 
     def __init__(self, in_stream):
         self.in_stream = in_stream
@@ -89,6 +91,7 @@ class Writer:
             self.out_stream = sys.stdout
 
 
+# TODO: Can we implement visitor pattern for this (python cookbook 8.21)
 class VMWriter(Writer):
     def write_push(self, segment, index):
         self.out_stream.write(f"push {segment} {index}{NEWLINE}")
@@ -127,7 +130,7 @@ class VMWriter(Writer):
     def close(self):
         pass
 
-
+# TODO: Can we implement visitor pattern for this (python cookbook 8.21)
 # Module 5: CompilationEngine
 class CompilationEngine:
     def __init__(self, jack_tokenizer: JackTokenizer, vm_stream: VMWriter):
@@ -147,14 +150,6 @@ class CompilationEngine:
         self.labels_indices = {}
 
     @property
-    def current_token_value(self):
-        return self.current_token.value
-
-    @property
-    def current_token_type(self):
-        return self.current_token.type
-
-    @property
     def current_class_name(self):
         return self.jack_tokenizer.src_base_name
 
@@ -170,8 +165,8 @@ class CompilationEngine:
         Raises:
             ParseException: in case no match
         """
-        if s == self.current_token_value or \
-                (s == self.current_token_type and s in {INT_CONSTANT, STR_CONSTANT, IDENTIFIER}):
+        if s == self.current_token.value or \
+                (s == self.current_token.type_ and s in {INT_CONSTANT, STR_CONSTANT, IDENTIFIER}):
             try:
                 self.current_token = next(self.tokens_stream)
             except StopIteration:
@@ -180,7 +175,7 @@ class CompilationEngine:
         else:
             raise ParseException(
                 f'Got wrong token in line {self.current_token.line_number}: '
-                f'{self.current_token_value}, expected: {s!r}\n{str(self.current_token)}')
+                f'{self.current_token.value}, expected: {s!r}\n{str(self.current_token)}')
 
     def compile_class(self):
         """Starting point in compiling a jack source file
@@ -198,21 +193,21 @@ class CompilationEngine:
 
         # className
         try:
-            assert self.current_token_value == self.current_class_name
+            assert self.current_token.value == self.current_class_name
         except AssertionError:
             raise CompileException(
-                f"class {self.current_token_value} does not match filename {self.current_class_name}")
+                f"class {self.current_token.value} does not match filename {self.current_class_name}")
         self._eat(IDENTIFIER)
 
         # {
         self._eat(LEFT_BRACE)
 
         # classVarDec*
-        while self.current_token_value in {STATIC, FIELD}:
+        while self.current_token.value in {STATIC, FIELD}:
             self.compile_class_var_dec()
 
         # subroutineDec*
-        while self.current_token_value in {CONSTRUCTOR, FUNCTION, METHOD}:
+        while self.current_token.value in {CONSTRUCTOR, FUNCTION, METHOD}:
             self.symbol_table.start_subroutine()
             self.compile_subroutine_dec()
 
@@ -228,9 +223,9 @@ class CompilationEngine:
         # <classVarDec>
         # field | static
         kind = None
-        if self.current_token_value in (STATIC, FIELD):
-            kind = self.current_token_value
-            self._eat(self.current_token_value)
+        if self.current_token.value in (STATIC, FIELD):
+            kind = self.current_token.value
+            self._eat(self.current_token.value)
 
         for _type, name in self._handle_type_var_name():
             self.symbol_table.define(name=name, _type=_type, kind=kind)
@@ -243,22 +238,22 @@ class CompilationEngine:
         :return: generator of jack variable (type, name)
         """
         # type
-        if self.current_token_value in {INT, CHAR, BOOLEAN}:
-            _type = self.current_token_value
-            self._eat(self.current_token_value)
-        elif self.current_token_type == IDENTIFIER:
-            _type = self.current_token_value
+        if self.current_token.value in {INT, CHAR, BOOLEAN}:
+            _type = self.current_token.value
+            self._eat(self.current_token.value)
+        elif self.current_token.type_ == IDENTIFIER:
+            _type = self.current_token.value
             self._eat(IDENTIFIER)
         else:
             raise CompileException(
-                f'Unidentified variable type: \'{self.current_token_value}\' in line {self.current_token.line_number}')
+                f'Unidentified variable type: \'{self.current_token.value}\' in line {self.current_token.line_number}')
 
         # varName (, varName)*;
         while True:
-            name = self.current_token_value
+            name = self.current_token.value
             self._eat(IDENTIFIER)
             yield _type, name
-            if self.current_token_value == SEMI_COLON:
+            if self.current_token.value == SEMI_COLON:
                 break
             self._eat(COMMA)
         self._eat(SEMI_COLON)
@@ -269,18 +264,18 @@ class CompilationEngine:
         """
         # <subroutineDec>
         # constructor | function | method
-        subroutine_type = self.current_token_value
+        subroutine_type = self.current_token.value
         if subroutine_type in (CONSTRUCTOR, FUNCTION, METHOD):
             self._eat(subroutine_type)
 
         # builtin type | className
-        if self.current_token_value in (VOID, INT, CHAR, BOOLEAN):
-            self._eat(self.current_token_value)
-        elif self.current_token_type == IDENTIFIER:
+        if self.current_token.value in (VOID, INT, CHAR, BOOLEAN):
+            self._eat(self.current_token.value)
+        elif self.current_token.type_ == IDENTIFIER:
             self._eat(IDENTIFIER)
 
         # subroutineName
-        subroutine_name = self.current_token_value
+        subroutine_name = self.current_token.value
         self._eat(IDENTIFIER)
 
         # (
@@ -299,7 +294,7 @@ class CompilationEngine:
         # <subroutineBody>
         # {
         self._eat(LEFT_BRACE)
-        while self.current_token_value == VAR:  # order matters, simplify
+        while self.current_token.value == VAR:  # order matters, simplify
             self.compile_var_dec()
         n_vars = self.symbol_table.var_count(LOCAL)
         self.vm_stream.write_function(f'{self.current_class_name}.{subroutine_name}', n_vars)
@@ -329,17 +324,17 @@ class CompilationEngine:
 
         # ((type varName) (, type varName)*)?
         while True:
-            _type = self.current_token_value
+            _type = self.current_token.value
             if _type in {INT, CHAR, BOOLEAN}:
                 self._eat(_type)
-            elif self.current_token_type == IDENTIFIER:
+            elif self.current_token.type_ == IDENTIFIER:
                 self._eat(IDENTIFIER)
             else:
                 break
-            name = self.current_token_value
+            name = self.current_token.value
             self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
             self._eat(IDENTIFIER)
-            if not self.current_token_value == COMMA:
+            if not self.current_token.value == COMMA:
                 break
             self._eat(COMMA)
 
@@ -349,7 +344,7 @@ class CompilationEngine:
     #     # <subroutineBody>
     #     # {
     #     self._eat(LEFT_BRACE)
-    #     while self.current_token_value == VAR:  # order matters, simplify
+    #     while self.current_token.value == VAR:  # order matters, simplify
     #         self.compile_var_dec()
     #     self.compile_statements()
     #     # }
@@ -375,14 +370,14 @@ class CompilationEngine:
         """
         # <statements>
 
-        while self.current_token_value in {LET, IF, WHILE, DO, RETURN}:
+        while self.current_token.value in {LET, IF, WHILE, DO, RETURN}:
             {
                 LET: self.compile_let_statement,
                 IF: self.compile_if_statement,
                 WHILE: self.compile_while_statement,
                 DO: self.compile_do_statement,
                 RETURN: self.compile_return_statement,
-            }[self.current_token_value]()
+            }[self.current_token.value]()
 
         # </statements>
 
@@ -396,12 +391,12 @@ class CompilationEngine:
         self._eat(LET)
 
         # varName
-        name = self.current_token_value
+        name = self.current_token.value
         self._eat(IDENTIFIER)
 
         # ( '[' expression ']')? - a bit involved to avoid arr1[exp1] = exp2 where exp2 might be arr2[exp3] writing
         # to THAT at same time
-        if self.current_token_value == LEFT_BRACKET:
+        if self.current_token.value == LEFT_BRACKET:
             kind = self.symbol_table.kind_of(name)
             kind = THIS if kind == FIELD else kind
             index = self.symbol_table.index_of(name)
@@ -456,7 +451,7 @@ class CompilationEngine:
         self.vm_stream.write_goto(label_if_true)
 
         self.vm_stream.write_label(label_if_false)
-        if self.current_token_value == ELSE:
+        if self.current_token.value == ELSE:
             self._eat(ELSE)
             # {statements2}
             self._handle_statements_within_braces()
@@ -468,7 +463,7 @@ class CompilationEngine:
         # {
         self._eat(LEFT_BRACE)
         # statements
-        while self.current_token_value in {LET, IF, WHILE, DO, RETURN}:
+        while self.current_token.value in {LET, IF, WHILE, DO, RETURN}:
             self.compile_statements()
         # }
         self._eat(RIGHT_BRACE)
@@ -513,9 +508,9 @@ class CompilationEngine:
         # do
         self._eat(DO)
         # subroutineName | (className | varName)'.'subroutineName
-        first_token = self.current_token_value
+        first_token = self.current_token.value
         self._eat(IDENTIFIER)
-        look_ahead_token = self.current_token_value
+        look_ahead_token = self.current_token.value
         self._compile_subroutine_call(first_token, look_ahead_token)
         self.vm_stream.write_pop("temp", 0)
         # ;
@@ -532,7 +527,7 @@ class CompilationEngine:
             n_args += 1
         elif first_token.lower() == first_token:  # obj.bar()
             self._eat(DOT)
-            subroutine_name = self.current_token_value
+            subroutine_name = self.current_token.value
             self._eat(IDENTIFIER)
             class_name = self.symbol_table.type_of(first_token)
             kind = self.symbol_table.kind_of(first_token)
@@ -543,7 +538,7 @@ class CompilationEngine:
         else:  # Foo.bar()
             class_name = first_token
             self._eat(DOT)
-            subroutine_name = self.current_token_value
+            subroutine_name = self.current_token.value
             self._eat(IDENTIFIER)
 
         subroutine_full_name = f'{class_name}.{subroutine_name}'
@@ -565,7 +560,7 @@ class CompilationEngine:
         self._eat(RETURN)
 
         # expression?
-        if self.current_token_value == SEMI_COLON:
+        if self.current_token.value == SEMI_COLON:
             # every func in jack must return something (we use 0 as dummy return)
             self.vm_stream.write_push("constant", 0)
         else:
@@ -600,9 +595,9 @@ class CompilationEngine:
         self.compile_term()
 
         # (op term)*
-        while self.current_token_value in OP:
-            operation = VM_OPERATIONS.get(self.current_token_value, self.current_token_value)
-            self._eat(self.current_token_value)
+        while self.current_token.value in OP:
+            operation = VM_OPERATIONS.get(self.current_token.value, self.current_token.value)
+            self._eat(self.current_token.value)
             self.compile_term()
             self.vm_stream.write_arithmetic(operation)
 
@@ -614,7 +609,7 @@ class CompilationEngine:
         """
 
         # <term>
-        current_token_value, current_token_type = self.current_token_value, self.current_token_type
+        current_token_value, current_token_type = self.current_token.value, self.current_token.type_
         if current_token_type == INT_CONSTANT:
             self.vm_stream.write_push("constant", int(current_token_value))
             self._eat(INT_CONSTANT)
@@ -645,9 +640,9 @@ class CompilationEngine:
             self.compile_expression()
             self._eat(RIGHT_PAREN)
         else:  # identifier
-            first_token = self.current_token_value
+            first_token = self.current_token.value
             self._eat(IDENTIFIER)
-            look_ahead_token = self.current_token_value
+            look_ahead_token = self.current_token.value
 
             # subroutineName | (className | varName)'.'subroutineName
             if look_ahead_token == LEFT_PAREN or look_ahead_token == DOT:
@@ -675,11 +670,11 @@ class CompilationEngine:
         # <expressionList>
         # (expression (',' expression)*)?
         n_expressions = 0
-        if not self.current_token_value == RIGHT_PAREN:
+        if not self.current_token.value == RIGHT_PAREN:
             while True:
                 self.compile_expression()
                 n_expressions += 1
-                if not self.current_token_value == COMMA:
+                if not self.current_token.value == COMMA:
                     break
                 self._eat(COMMA)
 
@@ -730,6 +725,7 @@ class SymbolTable:
         self._local_index = self._argument_index = 0
 
     # defines a new identifier of given parameters and assign it a running index
+    # TODO: the check needs revision
     def define(self, name: str, _type: str, kind: Optional[str]):
         for arg in name, _type, kind:
             if not arg:
