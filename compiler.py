@@ -64,21 +64,23 @@ class JackTokenizer:
             token_type = m.lastgroup
             if token_type is None: raise ParseException('token type cannot be None')
             token_value = m.group(token_type)
-            if token_type == 'integerConstant':
-                token_value = token_value
-            elif token_type == IDENTIFIER and token_value in self.KEYWORDS:
-                token_type = KEYWORD
-            elif token_type == 'newline':
-                line_number += 1
-                continue
-            elif token_type == 'comment':
-                line_number += token_value.count('\n') 
-                continue 
-            elif token_type == 'space':
-                continue
-            elif token_type == 'mismatch':
-                raise ParseException(
-                    f'got wrong jack token: {token_value} in line {line_number}')
+            match token_type:
+                case 'integerConstant':
+                    token_value = token_value
+                case 'identifier':
+                    if token_value in self.KEYWORDS:
+                        token_type = KEYWORD
+                case 'newline':
+                    line_number += 1
+                    continue
+                case 'comment':
+                    line_number += token_value.count('\n') 
+                    continue 
+                case 'space':
+                    continue
+                case 'mismatch':
+                    raise ParseException(
+                        f'got wrong jack token: {token_value} in line {line_number}')
             yield Token(token_type, token_value, line_number)
 
 
