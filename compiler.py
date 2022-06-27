@@ -43,7 +43,7 @@ class JackTokenizer:
         ]),
         INT_CONSTANT: r'\d+',
         STR_CONSTANT: r'"[^"\n]+"',  # unicode characters
-        IDENTIFIER: r'[a-zA-Z_]{1}[a-zA-Z0-9_]*',  # must be after keywords, in python re site, considered keyword as
+        IDENTIFIER: r'[a-zA-Z_][a-zA-Z0-9_]*',  # must be after keywords, in python re site, considered keyword as
         # part of ID pattern newline=r'\n',
         'mismatch': r'.',  # any other character
     }
@@ -95,38 +95,41 @@ class Writer:
 
 # TODO: Can we implement visitor pattern for this (python cookbook 8.21)
 class VMWriter(Writer):
+    def _write_line(self, text):
+        self.out_stream.write(text + NEWLINE)
+
     def write_push(self, segment, index):
-        self.out_stream.write(f"push {segment} {index}{NEWLINE}")
+        self._write_line(f"push {segment} {index}")
 
     def write_pop(self, segment, index):
-        self.out_stream.write(f"pop {segment} {index}{NEWLINE}")
+        self._write_line(f"pop {segment} {index}")
 
     def write_arithmetic(self, vm_command):
-        self.out_stream.write(f"{vm_command}{NEWLINE}")
+        self._write_line(f"{vm_command}")
 
     # writes a vm label command
     def write_label(self, label):
-        self.out_stream.write(f"label {label}{NEWLINE}")
+        self._write_line(f"label {label}")
 
     # writes a vm goto command
     def write_goto(self, label):
-        self.out_stream.write(f"goto {label}{NEWLINE}")
+        self._write_line(f"goto {label}")
 
     # writes a vm if-goto command
     def write_if_goto(self, label):
-        self.out_stream.write(f"if-goto {label}{NEWLINE}")
+        self._write_line(f"if-goto {label}")
 
     # writes a vm call command
     def write_call(self, name: str, n_args: int):
-        self.out_stream.write(f"call {name} {n_args}{NEWLINE}")
+        self._write_line(f"call {name} {n_args}")
 
     # write a vm function
     def write_function(self, name: str, n_locals: int):
-        self.out_stream.write(f"function {name} {n_locals}{NEWLINE}")
+        self._write_line(f"function {name} {n_locals}")
 
     # writes a vm return command
     def write_return(self):
-        self.out_stream.write(f"return{NEWLINE}")
+        self._write_line(f"return")
 
     # closes the output file, I guess not needed here, it is java-style
     def close(self):
@@ -137,7 +140,7 @@ class VMWriter(Writer):
 class CompilationEngine:
     def __init__(self, jack_tokenizer: JackTokenizer, vm_stream: VMWriter):
         """ initialize the compilation engine which parses tokens from tokensStream and write in vm_stream
-        INVARIANT: current_token is the token we are handling now given _eat() is last to run in handling it
+        INVARIANT: current_token is the token we are handling now given eat() is last to run in handling it
         Args:
             jack_tokenizer (JackTokenizer): the jack source code tokenizer
             vm_stream (VMWriter): writer of compiled vm code
@@ -160,7 +163,7 @@ class CompilationEngine:
         self.labels_indices[label_prefix] = index
         return f'{label_prefix}{index}'
 
-    def _eat(self, s):
+    def eat(self, s):
         """advance to next token if given string is same as the current token, otherwise raise error
         Args:
             s (str): string to match current token against
@@ -191,7 +194,7 @@ class CompilationEngine:
 
         # <class>
         # class
-        self._eat(CLASS)
+        self.eat(CLASS)
 
         # className
         try:
@@ -199,10 +202,10 @@ class CompilationEngine:
         except AssertionError:
             raise CompileException(
                 f"class {self.current_token.value} does not match filename {self.current_class_name}")
-        self._eat(IDENTIFIER)
+        self.eat(IDENTIFIER)
 
         # {
-        self._eat(LEFT_BRACE)
+        self.eat(LEFT_BRACE)
 
         # classVarDec*
         while self.current_token.value in {STATIC, FIELD}:
@@ -210,11 +213,10 @@ class CompilationEngine:
 
         # subroutineDec*
         while self.current_token.value in {CONSTRUCTOR, FUNCTION, METHOD}:
-            self.symbol_table.start_subroutine()
             self.compile_subroutine_dec()
 
         # }
-        self._eat(RIGHT_BRACE)
+        self.eat(RIGHT_BRACE)
 
         # </class>
 
@@ -224,10 +226,8 @@ class CompilationEngine:
         """
         # <classVarDec>
         # field | static
-        kind = None
-        if self.current_token.value in (STATIC, FIELD):
-            kind = self.current_token.value
-            self._eat(self.current_token.value)
+        kind = self.current_token.value
+        self.eat(self.current_token.value)
 
         for _type, name in self._handle_type_var_name():
             self.symbol_table.define(name=name, _type=_type, kind=kind)
@@ -242,10 +242,10 @@ class CompilationEngine:
         # type
         if self.current_token.value in {INT, CHAR, BOOLEAN}:
             _type = self.current_token.value
-            self._eat(self.current_token.value)
+            self.eat(self.current_token.value)
         elif self.current_token.type_ == IDENTIFIER:
             _type = self.current_token.value
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
         else:
             raise CompileException(
                 f'Unidentified variable type: \'{self.current_token.value}\' in line {self.current_token.line_number}')
@@ -253,35 +253,36 @@ class CompilationEngine:
         # varName (, varName)*;
         while True:
             name = self.current_token.value
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
             yield _type, name
             if self.current_token.value == SEMI_COLON:
                 break
-            self._eat(COMMA)
-        self._eat(SEMI_COLON)
+            self.eat(COMMA)
+        self.eat(SEMI_COLON)
 
     def compile_subroutine_dec(self):
         """compile a jack class subroutine declarations
         ASSUME: only called if current token's value is constructor, function or method
         """
+        self.symbol_table.start_subroutine()
         # <subroutineDec>
         # constructor | function | method
         subroutine_type = self.current_token.value
         if subroutine_type in (CONSTRUCTOR, FUNCTION, METHOD):
-            self._eat(subroutine_type)
+            self.eat(subroutine_type)
 
         # builtin type | className
         if self.current_token.value in (VOID, INT, CHAR, BOOLEAN):
-            self._eat(self.current_token.value)
+            self.eat(self.current_token.value)
         elif self.current_token.type_ == IDENTIFIER:
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
 
         # subroutineName
         subroutine_name = self.current_token.value
-        self._eat(IDENTIFIER)
+        self.eat(IDENTIFIER)
 
         # (
-        self._eat(LEFT_PAREN)
+        self.eat(LEFT_PAREN)
 
         # add this as argument in case the subroutine_type is a method
         if subroutine_type == METHOD:
@@ -291,11 +292,11 @@ class CompilationEngine:
         self.compile_parameter_list()
 
         # )
-        self._eat(RIGHT_PAREN)
+        self.eat(RIGHT_PAREN)
 
         # <subroutineBody>
         # {
-        self._eat(LEFT_BRACE)
+        self.eat(LEFT_BRACE)
         while self.current_token.value == VAR:  # order matters, simplify
             self.compile_var_dec()
         n_vars = self.symbol_table.var_count(LOCAL)
@@ -314,7 +315,7 @@ class CompilationEngine:
 
         self.compile_statements()
         # }
-        self._eat(RIGHT_BRACE)
+        self.eat(RIGHT_BRACE)
         # </subroutineBody>
 
         # </subroutineDec>
@@ -328,29 +329,29 @@ class CompilationEngine:
         while True:
             _type = self.current_token.value
             if _type in {INT, CHAR, BOOLEAN}:
-                self._eat(_type)
+                self.eat(_type)
             elif self.current_token.type_ == IDENTIFIER:
-                self._eat(IDENTIFIER)
+                self.eat(IDENTIFIER)
             else:
                 break
             name = self.current_token.value
             self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
             if not self.current_token.value == COMMA:
                 break
-            self._eat(COMMA)
+            self.eat(COMMA)
 
     # def compile_subroutine_body(self):
     #     """compile a jack subroutine body which is varDec* statements
     #     """
     #     # <subroutineBody>
     #     # {
-    #     self._eat(LEFT_BRACE)
+    #     self.eat(LEFT_BRACE)
     #     while self.current_token.value == VAR:  # order matters, simplify
     #         self.compile_var_dec()
     #     self.compile_statements()
     #     # }
-    #     self._eat(RIGHT_BRACE)
+    #     self.eat(RIGHT_BRACE)
     #     # </subroutineBody>
 
     def compile_var_dec(self):
@@ -359,7 +360,7 @@ class CompilationEngine:
         """
         # <varDec>
         # VAR
-        self._eat(VAR)
+        self.eat(VAR)
 
         # type varName (',' varName)*;
         for _type, name in self._handle_type_var_name():
@@ -390,11 +391,11 @@ class CompilationEngine:
         # <letStatement>
 
         # let
-        self._eat(LET)
+        self.eat(LET)
 
         # varName
         name = self.current_token.value
-        self._eat(IDENTIFIER)
+        self.eat(IDENTIFIER)
 
         # ( '[' expression ']')? - a bit involved to avoid arr1[exp1] = exp2 where exp2 might be arr2[exp3] writing
         # to THAT at same time
@@ -403,11 +404,11 @@ class CompilationEngine:
             kind = THIS if kind == FIELD else kind
             index = self.symbol_table.index_of(name)
             self.vm_stream.write_push(kind, index)  # arr1
-            self._eat(LEFT_BRACKET)
+            self.eat(LEFT_BRACKET)
             self.compile_expression()  # exp1
             self.vm_stream.write_arithmetic("add")
-            self._eat(RIGHT_BRACKET)
-            self._eat(EQUAL_SIGN)
+            self.eat(RIGHT_BRACKET)
+            self.eat(EQUAL_SIGN)
             self.compile_expression()  # exp2
             self.vm_stream.write_pop("temp", 0)
             self.vm_stream.write_pop("pointer", 1)
@@ -415,7 +416,7 @@ class CompilationEngine:
             self.vm_stream.write_pop(THAT, 0)
         else:
             # =
-            self._eat(EQUAL_SIGN)
+            self.eat(EQUAL_SIGN)
             # expression
             self.compile_expression()
 
@@ -424,7 +425,7 @@ class CompilationEngine:
             index = self.symbol_table.index_of(name)
             self.vm_stream.write_pop(kind, index)
         # ;
-        self._eat(SEMI_COLON)
+        self.eat(SEMI_COLON)
 
         # <letStatement>
 
@@ -438,12 +439,12 @@ class CompilationEngine:
 
         # <ifStatement>
         # if
-        self._eat(IF)
+        self.eat(IF)
 
         # (expression)
-        self._eat(LEFT_PAREN)
+        self.eat(LEFT_PAREN)
         self.compile_expression()
-        self._eat(RIGHT_PAREN)
+        self.eat(RIGHT_PAREN)
 
         self.vm_stream.write_arithmetic("not")
         self.vm_stream.write_if_goto(label_if_false)
@@ -454,7 +455,7 @@ class CompilationEngine:
 
         self.vm_stream.write_label(label_if_false)
         if self.current_token.value == ELSE:
-            self._eat(ELSE)
+            self.eat(ELSE)
             # {statements2}
             self._handle_statements_within_braces()
         self.vm_stream.write_label(label_if_true)
@@ -463,12 +464,12 @@ class CompilationEngine:
 
     def _handle_statements_within_braces(self):
         # {
-        self._eat(LEFT_BRACE)
+        self.eat(LEFT_BRACE)
         # statements
         while self.current_token.value in {LET, IF, WHILE, DO, RETURN}:
             self.compile_statements()
         # }
-        self._eat(RIGHT_BRACE)
+        self.eat(RIGHT_BRACE)
 
     def compile_while_statement(self):
         """
@@ -478,7 +479,7 @@ class CompilationEngine:
         # <whileStatement>
 
         # while
-        self._eat(WHILE)
+        self.eat(WHILE)
 
         label_while_exp = self.get_next_label(WHILE_EXP)
         label_while_end = self.get_next_label(WHILE_END)
@@ -486,9 +487,9 @@ class CompilationEngine:
         self.vm_stream.write_label(label_while_exp)
 
         # (expression)
-        self._eat(LEFT_PAREN)
+        self.eat(LEFT_PAREN)
         self.compile_expression()
-        self._eat(RIGHT_PAREN)
+        self.eat(RIGHT_PAREN)
 
         self.vm_stream.write_arithmetic("not")
         self.vm_stream.write_if_goto(label_while_end)
@@ -508,15 +509,15 @@ class CompilationEngine:
 
         # <doStatement>
         # do
-        self._eat(DO)
+        self.eat(DO)
         # subroutineName | (className | varName)'.'subroutineName
         first_token = self.current_token.value
-        self._eat(IDENTIFIER)
+        self.eat(IDENTIFIER)
         look_ahead_token = self.current_token.value
         self._compile_subroutine_call(first_token, look_ahead_token)
         self.vm_stream.write_pop("temp", 0)
         # ;
-        self._eat(SEMI_COLON)
+        self.eat(SEMI_COLON)
         # </doStatement>
 
     def _compile_subroutine_call(self, first_token, look_ahead_token):
@@ -528,9 +529,9 @@ class CompilationEngine:
             self.vm_stream.write_push("pointer", 0)  # pushing current object as 1st arg
             n_args += 1
         elif first_token.lower() == first_token:  # obj.bar()
-            self._eat(DOT)
+            self.eat(DOT)
             subroutine_name = self.current_token.value
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
             class_name = self.symbol_table.type_of(first_token)
             kind = self.symbol_table.kind_of(first_token)
             kind = THIS if kind == FIELD else kind
@@ -539,19 +540,19 @@ class CompilationEngine:
             n_args += 1
         else:  # Foo.bar()
             class_name = first_token
-            self._eat(DOT)
+            self.eat(DOT)
             subroutine_name = self.current_token.value
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
 
         subroutine_full_name = f'{class_name}.{subroutine_name}'
 
         # (expressionList)
-        self._eat(LEFT_PAREN)
+        self.eat(LEFT_PAREN)
 
         n_args += self.compile_expression_list()
         self.vm_stream.write_call(name=subroutine_full_name, n_args=n_args)
 
-        self._eat(RIGHT_PAREN)
+        self.eat(RIGHT_PAREN)
 
     def compile_return_statement(self):
         """
@@ -559,7 +560,7 @@ class CompilationEngine:
         """
         # <returnStatement>
         # return
-        self._eat(RETURN)
+        self.eat(RETURN)
 
         # expression?
         if self.current_token.value == SEMI_COLON:
@@ -571,7 +572,7 @@ class CompilationEngine:
         self.vm_stream.write_return()
 
         # ;
-        self._eat(SEMI_COLON)
+        self.eat(SEMI_COLON)
 
         # </returnStatement>
 
@@ -599,7 +600,7 @@ class CompilationEngine:
         # (op term)*
         while self.current_token.value in OP:
             operation = VM_OPERATIONS.get(self.current_token.value, self.current_token.value)
-            self._eat(self.current_token.value)
+            self.eat(self.current_token.value)
             self.compile_term()
             self.vm_stream.write_arithmetic(operation)
 
@@ -614,7 +615,7 @@ class CompilationEngine:
         current_token_value, current_token_type = self.current_token.value, self.current_token.type_
         if current_token_type == INT_CONSTANT:
             self.vm_stream.write_push("constant", int(current_token_value))
-            self._eat(INT_CONSTANT)
+            self.eat(INT_CONSTANT)
         elif current_token_type == STR_CONSTANT:
             current_value = current_token_value.strip('"')
             self.vm_stream.write_push("constant", len(current_value))
@@ -622,7 +623,7 @@ class CompilationEngine:
             for c in current_value:
                 self.vm_stream.write_push("constant", ord(c))
                 self.vm_stream.write_call("String.appendChar", 2)
-            self._eat(STR_CONSTANT)
+            self.eat(STR_CONSTANT)
         elif current_token_value in KEYWORD_CONSTANT:
             if current_token_value == NULL or current_token_value == FALSE:
                 self.vm_stream.write_push("constant", 0)
@@ -631,19 +632,19 @@ class CompilationEngine:
                 self.vm_stream.write_arithmetic("not")
             elif current_token_value == THIS:
                 self.vm_stream.write_push("pointer", 0)
-            self._eat(current_token_value)
+            self.eat(current_token_value)
         elif current_token_value in UNARY_OP:
             vm_command = "not" if current_token_value == TILDE else "neg"
-            self._eat(current_token_value)
+            self.eat(current_token_value)
             self.compile_term()
             self.vm_stream.write_arithmetic(vm_command)
         elif current_token_value == LEFT_PAREN:  # '(' expression ')'
-            self._eat(LEFT_PAREN)
+            self.eat(LEFT_PAREN)
             self.compile_expression()
-            self._eat(RIGHT_PAREN)
+            self.eat(RIGHT_PAREN)
         else:  # identifier
             first_token = self.current_token.value
-            self._eat(IDENTIFIER)
+            self.eat(IDENTIFIER)
             look_ahead_token = self.current_token.value
 
             # subroutineName | (className | varName)'.'subroutineName
@@ -657,12 +658,12 @@ class CompilationEngine:
                 self.vm_stream.write_push(kind, index)
                 # foo'[' expression ']'
                 if look_ahead_token == LEFT_BRACKET:
-                    self._eat(LEFT_BRACKET)
+                    self.eat(LEFT_BRACKET)
                     self.compile_expression()
                     self.vm_stream.write_arithmetic("add")
                     self.vm_stream.write_pop("pointer", 1)
                     self.vm_stream.write_push(THAT, 0)
-                    self._eat(RIGHT_BRACKET)
+                    self.eat(RIGHT_BRACKET)
         # </term>
 
     def compile_expression_list(self):
@@ -678,7 +679,7 @@ class CompilationEngine:
                 n_expressions += 1
                 if not self.current_token.value == COMMA:
                     break
-                self._eat(COMMA)
+                self.eat(COMMA)
 
         # </expressionList>
         return n_expressions
@@ -698,10 +699,10 @@ class JVariable(NamedTuple):
     kind: str
     index: int
 
-    def __eq__(self, o: object) -> bool:
-        if not isinstance(o, JVariable):
-            return False
-        return self.name == o.name and self.type == o.type and self.kind == o.kind
+    # def __eq__(self, o: object) -> bool:
+    #     if not isinstance(o, JVariable):
+    #         return False
+    #     return self.name == o.name and self.type == o.type and self.kind == o.kind
 
 
 class SymbolTable:
@@ -750,16 +751,32 @@ class SymbolTable:
             self._static_index += 1
             self._class_level_data.append(j_var)
 
+    # def var_count2(self, kind: str):
+    #     """
+    #     return the number of variables of the given kind
+    #     :param kind: kind of jack variable
+    #     :return: number of variables of kind in symbol table
+    #     """
+    #     if kind in (FIELD, STATIC):
+    #         return sum(kind == var.kind for var in self._class_level_data)
+    #     if kind in (LOCAL, ARGUMENT):
+    #         return sum(kind == var.kind for var in self._sub_level_data)
+    #     raise CompileException(f"{kind} is not supported!")
+
     def var_count(self, kind: str):
         """
         return the number of variables of the given kind
         :param kind: kind of jack variable
         :return: number of variables of kind in symbol table
         """
-        if kind in (FIELD, STATIC):
-            return sum(kind == var.kind for var in self._class_level_data)
-        if kind in (LOCAL, ARGUMENT):
-            return sum(kind == var.kind for var in self._sub_level_data)
+        if kind == FIELD:
+            return self._field_index
+        if kind == STATIC:
+            return self._static_index
+        if kind == LOCAL:
+            return self._local_index
+        if kind == ARGUMENT:
+            return self._argument_index
         raise CompileException(f"{kind} is not supported!")
 
     def kind_of(self, var: str):
