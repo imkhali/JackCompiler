@@ -251,13 +251,14 @@ class CompilationEngine:
                 f'Unidentified variable type: \'{self.current_token.value}\' in line {self.current_token.line_number}')
 
         # varName (, varName)*;
-        while True:
+        commaBeforeVar = False
+        while self.current_token.value != SEMI_COLON:
+            if commaBeforeVar: self.eat(COMMA)
             name = self.current_token.value
             self.eat(IDENTIFIER)
+            commaBeforeVar = True
             yield _type, name
-            if self.current_token.value == SEMI_COLON:
-                break
-            self.eat(COMMA)
+        
         self.eat(SEMI_COLON)
 
     def compile_subroutine_dec(self):
