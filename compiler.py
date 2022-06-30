@@ -229,16 +229,21 @@ class CompilationEngine:
         kind = self.current_token.value
         self.eat(self.current_token.value)
 
-        for _type, name in self._handle_type_var_name():
+        # type varName (',' varName)*;
+        _type = self._eat_and_return_var_type()
+        commaBefore = False
+        while self.current_token.value != SEMI_COLON:
+            if commaBefore: self.eat(COMMA)
+            name = self._eat_and_return_var_name()
+            commaBefore = True
             self.symbol_table.define(name=name, _type=_type, kind=kind)
+        
+        self.eat(SEMI_COLON)
 
         # varName
         # </classVarDec>
 
-    def _handle_type_var_name(self):
-        """
-        :return: generator of jack variable (type, name)
-        """
+    def _eat_and_return_var_type(self):
         # type
         if self.current_token.value in {INT, CHAR, BOOLEAN}:
             _type = self.current_token.value
@@ -249,18 +254,14 @@ class CompilationEngine:
         else:
             raise CompileException(
                 f'Unidentified variable type: \'{self.current_token.value}\' in line {self.current_token.line_number}')
-
-        # varName (, varName)*;
-        commaBeforeVar = False
-        while self.current_token.value != SEMI_COLON:
-            if commaBeforeVar: self.eat(COMMA)
-            name = self.current_token.value
-            self.eat(IDENTIFIER)
-            commaBeforeVar = True
-            yield _type, name
+        return _type
+    
+     
+    def _eat_and_return_var_name(self):
+        name = self.current_token.value
+        self.eat(IDENTIFIER)
+        return name
         
-        self.eat(SEMI_COLON)
-
     def compile_subroutine_dec(self):
         """compile a jack class subroutine declarations
         ASSUME: only called if current token's value is constructor, function or method
@@ -326,35 +327,14 @@ class CompilationEngine:
         """
         # <parameterList>
 
-        # ((type varName) (, type varName)*)?
-        while True:
-            _type = self.current_token.value
-            if _type in {INT, CHAR, BOOLEAN}:
-                self.eat(_type)
-            elif self.current_token.type_ == IDENTIFIER:
-                self.eat(IDENTIFIER)
-            else:
-                break
-            name = self.current_token.value
+        commaBefore = False
+        while self.current_token.value != RIGHT_PAREN:
+            if commaBefore: self.eat(COMMA)
+            _type = self._eat_and_return_var_type()
+            name = self._eat_and_return_var_name()
+            commaBefore = True
             self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
-            self.eat(IDENTIFIER)
-            if not self.current_token.value == COMMA:
-                break
-            self.eat(COMMA)
-
-    # def compile_subroutine_body(self):
-    #     """compile a jack subroutine body which is varDec* statements
-    #     """
-    #     # <subroutineBody>
-    #     # {
-    #     self.eat(LEFT_BRACE)
-    #     while self.current_token.value == VAR:  # order matters, simplify
-    #         self.compile_var_dec()
-    #     self.compile_statements()
-    #     # }
-    #     self.eat(RIGHT_BRACE)
-    #     # </subroutineBody>
-
+            
     def compile_var_dec(self):
         """compile jack variable declaration, varDec*, only called if current token is var
         add the variable to symbol table
@@ -364,8 +344,15 @@ class CompilationEngine:
         self.eat(VAR)
 
         # type varName (',' varName)*;
-        for _type, name in self._handle_type_var_name():
+        _type = self._eat_and_return_var_type()
+        commaBefore = False
+        while self.current_token.value != SEMI_COLON:
+            if commaBefore: self.eat(COMMA)
+            name = self._eat_and_return_var_name()
+            commaBefore = True
             self.symbol_table.define(name=name, _type=_type, kind=LOCAL)
+        
+        self.eat(SEMI_COLON)
         # </varDec>
 
     def compile_statements(self):
