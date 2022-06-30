@@ -332,8 +332,8 @@ class CompilationEngine:
             if commaBefore: self.eat(COMMA)
             _type = self._eat_and_return_var_type()
             name = self._eat_and_return_var_name()
-            commaBefore = True
             self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
+            commaBefore = True
             
     def compile_var_dec(self):
         """compile jack variable declaration, varDec*, only called if current token is var
