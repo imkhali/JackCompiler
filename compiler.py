@@ -349,8 +349,8 @@ class CompilationEngine:
         while self.current_token.value != SEMI_COLON:
             if commaBefore: self.eat(COMMA)
             name = self._eat_and_return_var_name()
-            commaBefore = True
             self.symbol_table.define(name=name, _type=_type, kind=LOCAL)
+            commaBefore = True
         
         self.eat(SEMI_COLON)
         # </varDec>
@@ -411,7 +411,7 @@ class CompilationEngine:
             kind = self.symbol_table.kind_of(name)
             kind = THIS if kind == FIELD else kind
             index = self.symbol_table.index_of(name)
-            self.vm_stream.write_pop(kind, index)
+        self.vm_stream.write_pop(kind, index)
         # ;
         self.eat(SEMI_COLON)
 
@@ -522,7 +522,8 @@ class CompilationEngine:
             self.eat(IDENTIFIER)
             class_name = self.symbol_table.type_of(first_token)
             kind = self.symbol_table.kind_of(first_token)
-            kind = THIS if kind == FIELD else kind
+            if kind == FIELD:
+                kind = THIS
             index = self.symbol_table.index_of(first_token)
             self.vm_stream.write_push(kind, index)
             n_args += 1
@@ -600,38 +601,37 @@ class CompilationEngine:
         """
 
         # <term>
-        current_token_value, current_token_type = self.current_token.value, self.current_token.type_
-        if current_token_type == INT_CONSTANT:
-            self.vm_stream.write_push("constant", int(current_token_value))
+        first_token = self.current_token.value
+        if self.current_token.type_ == INT_CONSTANT:
+            self.vm_stream.write_push("constant", int(first_token))
             self.eat(INT_CONSTANT)
-        elif current_token_type == STR_CONSTANT:
-            current_value = current_token_value.strip('"')
+        elif self.current_token.type_ == STR_CONSTANT:
+            current_value = first_token.strip('"')
             self.vm_stream.write_push("constant", len(current_value))
             self.vm_stream.write_call("String.new", 1)
             for c in current_value:
                 self.vm_stream.write_push("constant", ord(c))
                 self.vm_stream.write_call("String.appendChar", 2)
             self.eat(STR_CONSTANT)
-        elif current_token_value in KEYWORD_CONSTANT:
-            if current_token_value == NULL or current_token_value == FALSE:
+        elif first_token in KEYWORD_CONSTANT:
+            if first_token == NULL or first_token == FALSE:
                 self.vm_stream.write_push("constant", 0)
-            elif current_token_value == TRUE:
+            elif first_token == TRUE:
                 self.vm_stream.write_push("constant", 0)
                 self.vm_stream.write_arithmetic("not")
-            elif current_token_value == THIS:
+            elif first_token == THIS:
                 self.vm_stream.write_push("pointer", 0)
-            self.eat(current_token_value)
-        elif current_token_value in UNARY_OP:
-            vm_command = "not" if current_token_value == TILDE else "neg"
-            self.eat(current_token_value)
+            self.eat(first_token)
+        elif first_token in UNARY_OP:
+            vm_command = "not" if first_token == TILDE else "neg"
+            self.eat(first_token)
             self.compile_term()
             self.vm_stream.write_arithmetic(vm_command)
-        elif current_token_value == LEFT_PAREN:  # '(' expression ')'
+        elif first_token == LEFT_PAREN:  # '(' expression ')'
             self.eat(LEFT_PAREN)
             self.compile_expression()
             self.eat(RIGHT_PAREN)
         else:  # identifier
-            first_token = self.current_token.value
             self.eat(IDENTIFIER)
             look_ahead_token = self.current_token.value
 
@@ -641,7 +641,8 @@ class CompilationEngine:
             # foo
             else:
                 kind = self.symbol_table.kind_of(first_token)
-                kind = THIS if kind == FIELD else kind
+                if kind == FIELD:
+                    kind = THIS
                 index = self.symbol_table.index_of(first_token)
                 self.vm_stream.write_push(kind, index)
                 # foo'[' expression ']'
@@ -771,7 +772,7 @@ class SymbolTable:
         """
         return the jack kind of the identifier var
         :param var: the identifier or variable to look for
-        :return: kind of var
+        :return: kind of var or THIS (if kind is FIELD)
         """
         kind = self._get_var_property(var, 'kind')
         if kind is not None:
