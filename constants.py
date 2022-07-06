@@ -50,7 +50,7 @@ KEYWORD = 'keyword'
 SYMBOL = 'symbol'
 UNARY_OP = {MINUS, TILDE}  # faster for in operator
 OP = {PLUS, MINUS, ASTERISK, FORWARD_SLASH, AMPERSAND, PIPE, LESS_THAN, GREATER_THAN, EQUAL_SIGN}
-KEYWORD_CONSTANT = {TRUE, FALSE, NULL, THIS}
+TRUE_FALSE_NULL_THIS = {TRUE, FALSE, NULL, THIS}
 SUBROUTINE = 'subroutine'
 LOCAL = 'local'
 ARGUMENT = 'argument'
@@ -66,6 +66,13 @@ VM_OPERATIONS = {
     AMPERSAND: "and",
     PIPE: "or",
     TILDE: "not"
+}
+
+SEGMENT_OF_KIND = {
+    FIELD: THIS,
+    ARGUMENT: ARGUMENT,
+    LOCAL: LOCAL,
+    STATIC: STATIC
 }
 
 # informative labels

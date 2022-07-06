@@ -1,4 +1,3 @@
-
 import logging
 import os
 import re
@@ -51,9 +50,9 @@ class JackTokenizer:
     jack_token = re.compile(
         '|'.join(
             r'(?P<{}>{})'.format(token, specification)
-             for token, specification in tokens_specifications.items()
-             )
+            for token, specification in tokens_specifications.items()
         )
+    )
 
     def __init__(self, in_stream):
         self.in_stream = in_stream
@@ -63,7 +62,8 @@ class JackTokenizer:
         line_number = 1
         for m in self.jack_token.finditer(self.in_stream.read()):
             token_type = m.lastgroup
-            if token_type is None: raise ParseException('token type cannot be None')
+            if token_type is None:
+                raise ParseException('token type cannot be None')
             token_value = m.group(token_type)
             match token_type:
                 case 'integerConstant':
@@ -75,8 +75,8 @@ class JackTokenizer:
                     line_number += 1
                     continue
                 case 'comment':
-                    line_number += token_value.count('\n') 
-                    continue 
+                    line_number += token_value.count('\n')
+                    continue
                 case 'space':
                     continue
                 case 'mismatch':
@@ -136,6 +136,7 @@ class VMWriter(Writer):
     def close(self):
         pass
 
+
 # TODO: Can we implement visitor pattern for this (python cookbook 8.21)
 # Module 5: CompilationEngine
 class CompilationEngine:
@@ -150,7 +151,7 @@ class CompilationEngine:
         self.tokens_stream = jack_tokenizer.start_tokenizer()
         self.vm_stream = vm_stream
         self.symbol_table = SymbolTable()
-        self.current_token = Token('', '', -1) # instead of none for easier type checking
+        self.current_token = Token('', '', -1)  # instead of none for easier type checking
 
         # labels indices
         self.labels_indices = {}
@@ -188,7 +189,6 @@ class CompilationEngine:
         """
         # first token
         try:
-            # self.current_token = self.current_token if self.current_token is not _init_token else next(self.tokens_stream)
             self.current_token = next(self.tokens_stream)
         except StopIteration:  # jack source file is empty
             return
@@ -232,13 +232,13 @@ class CompilationEngine:
 
         # type varName (',' varName)*;
         _type = self._eat_and_return_var_type()
-        commaBefore = False
+        comma_before = False
         while self.current_token.value != SEMI_COLON:
-            if commaBefore: self.eat(COMMA)
+            if comma_before: self.eat(COMMA)
             name = self._eat_and_return_var_name()
-            commaBefore = True
+            comma_before = True
             self.symbol_table.define(name=name, _type=_type, kind=kind)
-        
+
         self.eat(SEMI_COLON)
 
         # varName
@@ -256,13 +256,12 @@ class CompilationEngine:
             raise CompileException(
                 f'Unidentified variable type: \'{self.current_token.value}\' in line {self.current_token.line_number}')
         return _type
-    
-     
+
     def _eat_and_return_var_name(self):
         name = self.current_token.value
         self.eat(IDENTIFIER)
         return name
-        
+
     def compile_subroutine_dec(self):
         """compile a jack class subroutine declarations
         ASSUME: only called if current token's value is constructor, function or method
@@ -328,14 +327,14 @@ class CompilationEngine:
         """
         # <parameterList>
 
-        commaBefore = False
+        comma_before = False
         while self.current_token.value != RIGHT_PAREN:
-            if commaBefore: self.eat(COMMA)
+            if comma_before: self.eat(COMMA)
             _type = self._eat_and_return_var_type()
             name = self._eat_and_return_var_name()
             self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
-            commaBefore = True
-            
+            comma_before = True
+
     def compile_var_dec(self):
         """compile jack variable declaration, varDec*, only called if current token is var
         add the variable to symbol table
@@ -346,13 +345,13 @@ class CompilationEngine:
 
         # type varName (',' varName)*;
         _type = self._eat_and_return_var_type()
-        commaBefore = False
+        comma_before = False
         while self.current_token.value != SEMI_COLON:
-            if commaBefore: self.eat(COMMA)
+            if comma_before: self.eat(COMMA)
             name = self._eat_and_return_var_name()
             self.symbol_table.define(name=name, _type=_type, kind=LOCAL)
-            commaBefore = True
-        
+            comma_before = True
+
         self.eat(SEMI_COLON)
         # </varDec>
 
@@ -389,10 +388,9 @@ class CompilationEngine:
         # ( '[' expression ']')? - a bit involved to avoid arr1[exp1] = exp2 where exp2 might be arr2[exp3] writing
         # to THAT at same time
         if self.current_token.value == LEFT_BRACKET:
-            kind = self.symbol_table.kind_of(name)
-            kind = THIS if kind == FIELD else kind
+            segment = SEGMENT_OF_KIND.get(self.symbol_table.kind_of(name))
             index = self.symbol_table.index_of(name)
-            self.vm_stream.write_push(kind, index)  # arr1
+            self.vm_stream.write_push(segment, index)  # arr1
             self.eat(LEFT_BRACKET)
             self.compile_expression()  # exp1
             self.vm_stream.write_arithmetic("add")
@@ -408,11 +406,9 @@ class CompilationEngine:
             self.eat(EQUAL_SIGN)
             # expression
             self.compile_expression()
-
-            kind = self.symbol_table.kind_of(name)
-            kind = THIS if kind == FIELD else kind
+            segment = SEGMENT_OF_KIND.get(self.symbol_table.kind_of(name))
             index = self.symbol_table.index_of(name)
-        self.vm_stream.write_pop(kind, index)
+        self.vm_stream.write_pop(segment, index)
         # ;
         self.eat(SEMI_COLON)
 
@@ -522,11 +518,9 @@ class CompilationEngine:
             subroutine_name = self.current_token.value
             self.eat(IDENTIFIER)
             class_name = self.symbol_table.type_of(first_token)
-            kind = self.symbol_table.kind_of(first_token)
-            if kind == FIELD:
-                kind = THIS
+            segment = SEGMENT_OF_KIND.get(self.symbol_table.kind_of(first_token))
             index = self.symbol_table.index_of(first_token)
-            self.vm_stream.write_push(kind, index)
+            self.vm_stream.write_push(segment, index)
             n_args += 1
         else:  # Foo.bar()
             class_name = first_token
@@ -600,61 +594,75 @@ class CompilationEngine:
         """
         compile jack term
         """
-
         # <term>
         first_token = self.current_token.value
         if self.current_token.type_ == INT_CONSTANT:
-            self.vm_stream.write_push("constant", int(first_token))
-            self.eat(INT_CONSTANT)
+            self._handle_term_integer_constant()
         elif self.current_token.type_ == STR_CONSTANT:
-            current_value = first_token.strip('"')
-            self.vm_stream.write_push("constant", len(current_value))
-            self.vm_stream.write_call("String.new", 1)
-            for c in current_value:
-                self.vm_stream.write_push("constant", ord(c))
-                self.vm_stream.write_call("String.appendChar", 2)
-            self.eat(STR_CONSTANT)
-        elif first_token in KEYWORD_CONSTANT:
-            if first_token == NULL or first_token == FALSE:
-                self.vm_stream.write_push("constant", 0)
-            elif first_token == TRUE:
-                self.vm_stream.write_push("constant", 0)
-                self.vm_stream.write_arithmetic("not")
-            elif first_token == THIS:
-                self.vm_stream.write_push("pointer", 0)
-            self.eat(first_token)
+            self._handle_term_string_constant()
+        elif first_token in TRUE_FALSE_NULL_THIS:
+            self._handle_term_keyword_constant()
         elif first_token in UNARY_OP:
-            vm_command = "not" if first_token == TILDE else "neg"
-            self.eat(first_token)
-            self.compile_term()
-            self.vm_stream.write_arithmetic(vm_command)
+            self._handle_term_unary_operator()
         elif first_token == LEFT_PAREN:  # '(' expression ')'
             self.eat(LEFT_PAREN)
             self.compile_expression()
             self.eat(RIGHT_PAREN)
         else:  # identifier
-            self.eat(IDENTIFIER)
-            look_ahead_token = self.current_token.value
+            self._handle_term_identifier()
 
-            # subroutineName | (className | varName)'.'subroutineName
-            if look_ahead_token == LEFT_PAREN or look_ahead_token == DOT:
-                self._compile_subroutine_call(first_token, look_ahead_token)
-            # foo
-            else:
-                kind = self.symbol_table.kind_of(first_token)
-                if kind == FIELD:
-                    kind = THIS
-                index = self.symbol_table.index_of(first_token)
-                self.vm_stream.write_push(kind, index)
-                # foo'[' expression ']'
-                if look_ahead_token == LEFT_BRACKET:
-                    self.eat(LEFT_BRACKET)
-                    self.compile_expression()
-                    self.vm_stream.write_arithmetic("add")
-                    self.vm_stream.write_pop("pointer", 1)
-                    self.vm_stream.write_push(THAT, 0)
-                    self.eat(RIGHT_BRACKET)
+    def _handle_term_identifier(self):
+        first_token = self.current_token.value
+        self.eat(IDENTIFIER)
+        look_ahead_token = self.current_token.value
+
+        # subroutineName | (className | varName)'.'subroutineName
+        if look_ahead_token == LEFT_PAREN or look_ahead_token == DOT:
+            self._compile_subroutine_call(first_token, look_ahead_token)
+        else:  # foo
+            segment = SEGMENT_OF_KIND.get(self.symbol_table.kind_of(first_token))
+            index = self.symbol_table.index_of(first_token)
+            self.vm_stream.write_push(segment, index)
+            # foo'[' expression ']'
+            if look_ahead_token == LEFT_BRACKET:
+                self.eat(LEFT_BRACKET)
+                self.compile_expression()
+                self.vm_stream.write_arithmetic("add")
+                self.vm_stream.write_pop("pointer", 1)
+                self.vm_stream.write_push(THAT, 0)
+                self.eat(RIGHT_BRACKET)
         # </term>
+
+    def _handle_term_integer_constant(self):
+        self.vm_stream.write_push("constant", int(self.current_token.value))
+        self.eat(INT_CONSTANT)
+
+    def _handle_term_string_constant(self):
+        current_value = self.current_token.value.strip('"')
+        self.vm_stream.write_push("constant", len(current_value))
+        self.vm_stream.write_call("String.new", 1)
+        for c in current_value:
+            self.vm_stream.write_push("constant", ord(c))
+            self.vm_stream.write_call("String.appendChar", 2)
+        self.eat(STR_CONSTANT)
+
+    def _handle_term_keyword_constant(self):
+        token = self.current_token.value
+        if token == NULL or token == FALSE:
+            self.vm_stream.write_push("constant", 0)
+        elif token == TRUE:
+            self.vm_stream.write_push("constant", 0)
+            self.vm_stream.write_arithmetic("not")
+        elif token == THIS:
+            self.vm_stream.write_push("pointer", 0)
+        self.eat(token)
+
+    def _handle_term_unary_operator(self):
+        token = self.current_token.value
+        vm_command = "not" if token == TILDE else "neg"
+        self.eat(token)
+        self.compile_term()
+        self.vm_stream.write_arithmetic(vm_command)
 
     def compile_expression_list(self):
         """
@@ -740,18 +748,6 @@ class SymbolTable:
             j_var = JVariable(name, _type, kind, self._static_index)
             self._static_index += 1
             self._class_level_data.append(j_var)
-
-    # def var_count2(self, kind: str):
-    #     """
-    #     return the number of variables of the given kind
-    #     :param kind: kind of jack variable
-    #     :return: number of variables of kind in symbol table
-    #     """
-    #     if kind in (FIELD, STATIC):
-    #         return sum(kind == var.kind for var in self._class_level_data)
-    #     if kind in (LOCAL, ARGUMENT):
-    #         return sum(kind == var.kind for var in self._sub_level_data)
-    #     raise CompileException(f"{kind} is not supported!")
 
     def var_count(self, kind: str):
         """
