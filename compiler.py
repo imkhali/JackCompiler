@@ -94,7 +94,6 @@ class Writer:
             self.out_stream = sys.stdout
 
 
-# TODO: Can we implement visitor pattern for this (python cookbook 8.21)
 class VMWriter(Writer):
     def _write_line(self, text):
         self.out_stream.write(text + NEWLINE)
@@ -137,7 +136,6 @@ class VMWriter(Writer):
         pass
 
 
-# TODO: Can we implement visitor pattern for this (python cookbook 8.21)
 # Module 5: CompilationEngine
 class CompilationEngine:
     def __init__(self, jack_tokenizer: JackTokenizer, vm_stream: VMWriter):
@@ -726,7 +724,6 @@ class SymbolTable:
         self._local_index = self._argument_index = 0
 
     # defines a new identifier of given parameters and assign it a running index
-    # TODO: the check needs revision
     def define(self, name: str, _type: str, kind: Optional[str]):
         for arg in name, _type, kind:
             if not arg:
