@@ -60,7 +60,7 @@ class JackTokenizer:
         self.src_base_name = os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
 
     # noinspection PyCompatibility
-    def start_tokenizer(self):
+    def tokens_stream(self):
         line_number = 1
         for m in self.jack_token.finditer(self.in_stream.read()):
             token_type, token_value = m.lastgroup, m.group()
@@ -145,7 +145,7 @@ class CompilationEngine:
             vm_stream (VMWriter): writer of compiled vm code
         """
         self.jack_tokenizer = jack_tokenizer
-        self.tokens_stream = jack_tokenizer.start_tokenizer()
+        self.tokens_stream = jack_tokenizer.tokens_stream()
         self.vm_stream = vm_stream
         self.symbol_table = SymbolTable()
         self.current_token = Token('', '', -1)  # instead of none for easier type checking
@@ -171,9 +171,8 @@ class CompilationEngine:
         """
         if s == self.current_token.value or \
                 (s == self.current_token.type_ and s in {INT_CONSTANT, STR_CONSTANT, IDENTIFIER}):
-            try:
-                self.current_token = next(self.tokens_stream)
-            except StopIteration:
+            self.current_token = next(self.tokens_stream, None)
+            if self.current_token is None:
                 if s != RIGHT_BRACE:  # last token
                     raise ParseException(f'Error, reached end of file\n{str(self.current_token)}')
         else:
@@ -185,9 +184,8 @@ class CompilationEngine:
         """Starting point in compiling a jack source file
         """
         # first token
-        try:
-            self.current_token = next(self.tokens_stream)
-        except StopIteration:  # jack source file is empty
+        self.current_token = next(self.tokens_stream, None)
+        if self.current_token is None:  # jack source file is empty
             return
 
         # <class>
