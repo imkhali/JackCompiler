@@ -4,6 +4,7 @@ import re
 import sys
 from operator import attrgetter
 from typing import NamedTuple, TextIO, Optional
+from dataclasses import dataclass
 
 from constants import *
 
@@ -58,13 +59,11 @@ class JackTokenizer:
         self.in_stream = in_stream
         self.src_base_name = os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
 
+    # noinspection PyCompatibility
     def start_tokenizer(self):
         line_number = 1
         for m in self.jack_token.finditer(self.in_stream.read()):
-            token_type = m.lastgroup
-            if token_type is None:
-                raise ParseException('token type cannot be None')
-            token_value = m.group(token_type)
+            token_type, token_value = m.lastgroup, m.group()
             match token_type:
                 case 'integerConstant':
                     token_value = token_value
@@ -580,9 +579,9 @@ class CompilationEngine:
         self.compile_term()
 
         # (op term)*
-        while self.current_token.value in OP:
-            operation = VM_OPERATIONS.get(self.current_token.value, self.current_token.value)
-            self.eat(self.current_token.value)
+        while (value := self.current_token.value) in OP:
+            operation = VM_OPERATIONS.get(value, value)
+            self.eat(value)
             self.compile_term()
             self.vm_stream.write_arithmetic(operation)
 
@@ -689,7 +688,8 @@ y       int     field       1
 """
 
 
-class JVariable(NamedTuple):
+@dataclass(frozen=True)
+class JVariable:
     name: str
     type: str
     kind: str
@@ -703,48 +703,38 @@ class JVariable(NamedTuple):
 
 class SymbolTable:
     def __init__(self):
-        self._class_level_data = []
-        self._local_index = self._argument_index = self._field_index = self._static_index = 0
-        self._sub_level_data = []
+        self._class_vars = []
+        self._sub_vars = []
 
     def __str__(self):
         return self.__repr__()
 
     def __repr__(self):
         result = ''
-        if self._class_level_data:
-            result += '\nclass level:\n' + '\n'.join(map(str, self._class_level_data))
-        if self._sub_level_data:
-            result += '\n\nsub level:\n' + '\n'.join(map(str, self._sub_level_data)) + '\n'
+        if self._class_vars:
+            result += '\nclass level:\n' + '\n'.join(map(str, self._class_vars))
+        if self._sub_vars:
+            result += '\n\nsub level:\n' + '\n'.join(map(str, self._sub_vars)) + '\n'
         return result
 
     # starts a new subroutine scope
     def start_subroutine(self):
-        self._sub_level_data = []
-        self._local_index = self._argument_index = 0
+        self._sub_vars = []
 
     # defines a new identifier of given parameters and assign it a running index
     def define(self, name: str, _type: str, kind: Optional[str]):
         for arg in name, _type, kind:
             if not arg:
                 raise CompileException(f"'{arg}' is not a valid variable name")
+        if kind not in (LOCAL, ARGUMENT, FIELD, STATIC):
+            raise CompileException(f"'{kind}' is not a valid variable kind")
 
-        if kind == LOCAL:
-            j_var = JVariable(name, _type, kind, self._local_index)
-            self._local_index += 1
-            self._sub_level_data.append(j_var)
-        elif kind == ARGUMENT:
-            j_var = JVariable(name, _type, kind, self._argument_index)
-            self._argument_index += 1
-            self._sub_level_data.append(j_var)
-        elif kind == FIELD:
-            j_var = JVariable(name, _type, kind, self._field_index)
-            self._field_index += 1
-            self._class_level_data.append(j_var)
-        elif kind == STATIC:
-            j_var = JVariable(name, _type, kind, self._static_index)
-            self._static_index += 1
-            self._class_level_data.append(j_var)
+        index = self.var_count(kind)
+        j_var = JVariable(name, _type, kind, index)
+        if kind == LOCAL or kind == ARGUMENT:
+            self._sub_vars.append(j_var)
+        elif kind == FIELD or kind == STATIC:
+            self._class_vars.append(j_var)
 
     def var_count(self, kind: str):
         """
@@ -752,63 +742,28 @@ class SymbolTable:
         :param kind: kind of jack variable
         :return: number of variables of kind in symbol table
         """
-        if kind == FIELD:
-            return self._field_index
-        if kind == STATIC:
-            return self._static_index
-        if kind == LOCAL:
-            return self._local_index
-        if kind == ARGUMENT:
-            return self._argument_index
-        raise CompileException(f"{kind} is not supported!")
+        return sum(
+            kind == var.kind for var in self._sub_vars + self._class_vars
+        )
 
     def kind_of(self, var: str):
-        """
-        return the jack kind of the identifier var
-        :param var: the identifier or variable to look for
-        :return: kind of var or THIS (if kind is FIELD)
-        """
-        kind = self._get_var_property(var, 'kind')
-        if kind is not None:
-            return kind
-        raise CompileException(f"{var} is not defined!!")
+        return self._get_var_property(var, 'kind')
 
     def type_of(self, var: str):
-        """
-        return the jack type of the identifier var
-        :param var: the identifier or variable to look for
-        :return: type of var
-        """
-        _type = self._get_var_property(var, 'type')
-        if _type is not None:
-            return _type
-        raise CompileException(f"{var} is not defined!")
+        return self._get_var_property(var, 'type')
 
     def index_of(self, var: str):
-        """
-        return the index of the identifier var
-        :param var: the identifier or variable to look for
-        :return:
-        """
-        index = self._get_var_property(var, 'index')
-        if index is not None:
-            return index
-        raise CompileException(f"{var} is not defined!")
-
-    # def contains(self, var: str):
-    #     if self.index_of(var) == -1:
-    #         return False
-    #     return True
+        return self._get_var_property(var, 'index')
 
     def _get_var_property(self, var: str, _property: str):
         property_getter = attrgetter(_property)
-        for sub_var in self._sub_level_data:
+        for sub_var in self._sub_vars:
             if var == sub_var.name:
                 return property_getter(sub_var)
-        for class_var in self._class_level_data:
+        for class_var in self._class_vars:
             if var == class_var.name:
                 return property_getter(class_var)
-        return None
+        raise CompileException(f"{var} is not defined!")
 
 
 # Module 1: Jack compiler (ui)
@@ -817,7 +772,9 @@ def handle_file(src_path):
     out_vm_path = src_path.replace(SRC_FILE_EXT, VM_FILE_EXT)
     with open(src_path) as src_stream, \
             open(out_vm_path, 'w') as vm_stream:
-        compilation_engine = CompilationEngine(JackTokenizer(src_stream), VMWriter(vm_stream))
+        tokenizer = JackTokenizer(src_stream)
+        vmwriter = VMWriter(vm_stream)
+        compilation_engine = CompilationEngine(tokenizer, vmwriter)
         compilation_engine.compile_class()
     logging.info(f'generated {out_vm_path}')
 
