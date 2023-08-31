@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
 import sys
-from operator import attrgetter
-from typing import NamedTuple, TextIO, Optional
 from dataclasses import dataclass
+from operator import attrgetter
+from typing import NamedTuple, TextIO, Optional, Iterator
 
 from constants import *
 
@@ -55,12 +57,12 @@ class JackTokenizer:
         )
     )
 
-    def __init__(self, in_stream):
+    def __init__(self, in_stream: TextIO) -> None:
         self.in_stream = in_stream
         self.src_base_name = os.path.split(self.in_stream.name)[-1].rpartition('.')[0]
 
     # noinspection PyCompatibility
-    def tokens_stream(self):
+    def tokens_stream(self) -> Iterator[Token]:
         line_number = 1
         for m in self.jack_token.finditer(self.in_stream.read()):
             token_type, token_value = m.lastgroup, m.group()
@@ -86,7 +88,7 @@ class JackTokenizer:
 
 # Module 4: VMWriter, generates VM code
 class Writer:
-    def __init__(self, out_stream: TextIO = None):
+    def __init__(self, out_stream: TextIO | None = None):
         if out_stream is not None:
             self.out_stream = out_stream
         else:
@@ -94,44 +96,44 @@ class Writer:
 
 
 class VMWriter(Writer):
-    def _write_line(self, text):
+    def _write_line(self, text: str) -> None:
         self.out_stream.write(text + NEWLINE)
 
-    def write_push(self, segment, index):
+    def write_push(self, segment: str, index: int) -> None:
         self._write_line(f"push {segment} {index}")
 
-    def write_pop(self, segment, index):
+    def write_pop(self, segment: str, index: int) -> None:
         self._write_line(f"pop {segment} {index}")
 
-    def write_arithmetic(self, vm_command):
+    def write_arithmetic(self, vm_command: str) -> None:
         self._write_line(f"{vm_command}")
 
     # writes a vm label command
-    def write_label(self, label):
+    def write_label(self, label: str) -> None:
         self._write_line(f"label {label}")
 
     # writes a vm goto command
-    def write_goto(self, label):
+    def write_goto(self, label: str) -> None:
         self._write_line(f"goto {label}")
 
     # writes a vm if-goto command
-    def write_if_goto(self, label):
+    def write_if_goto(self, label: str) -> None:
         self._write_line(f"if-goto {label}")
 
     # writes a vm call command
-    def write_call(self, name: str, n_args: int):
+    def write_call(self, name: str, n_args: int) -> None:
         self._write_line(f"call {name} {n_args}")
 
     # write a vm function
-    def write_function(self, name: str, n_locals: int):
+    def write_function(self, name: str, n_locals: int) -> None:
         self._write_line(f"function {name} {n_locals}")
 
     # writes a vm return command
-    def write_return(self):
+    def write_return(self) -> None:
         self._write_line(f"return")
 
     # closes the output file, I guess not needed here, it is java-style
-    def close(self):
+    def close(self) -> None:
         pass
 
 
@@ -157,12 +159,12 @@ class CompilationEngine:
     def current_class_name(self):
         return self.jack_tokenizer.src_base_name
 
-    def get_next_label(self, label_prefix):
+    def get_next_label(self, label_prefix: int) -> str:
         index = self.labels_indices.setdefault(label_prefix, -1) + 1
         self.labels_indices[label_prefix] = index
         return f'{label_prefix}{index}'
 
-    def eat(self, s):
+    def eat(self, s: str) -> None:
         """advance to next token if given string is same as the current token, otherwise raise error
         Args:
             s (str): string to match current token against
@@ -180,7 +182,7 @@ class CompilationEngine:
                 f'Got wrong token in line {self.current_token.line_number}: '
                 f'{self.current_token.value}, expected: {s!r}\n{str(self.current_token)}')
 
-    def compile_class(self):
+    def compile_class(self) -> None:
         """Starting point in compiling a jack source file
         """
         # first token
@@ -216,7 +218,7 @@ class CompilationEngine:
 
         # </class>
 
-    def compile_class_var_dec(self):
+    def compile_class_var_dec(self) -> None:
         """compile a jack class variable declarations
         ASSUME: only called if current token's value is static or field
         """
@@ -239,7 +241,7 @@ class CompilationEngine:
         # varName
         # </classVarDec>
 
-    def _eat_and_return_var_type(self):
+    def _eat_and_return_var_type(self) -> str:
         # type
         if self.current_token.value in {INT, CHAR, BOOLEAN}:
             _type = self.current_token.value
@@ -252,12 +254,12 @@ class CompilationEngine:
                 f'Unidentified variable type: \'{self.current_token.value}\' in line {self.current_token.line_number}')
         return _type
 
-    def _eat_and_return_var_name(self):
+    def _eat_and_return_var_name(self) -> str:
         name = self.current_token.value
         self.eat(IDENTIFIER)
         return name
 
-    def compile_subroutine_dec(self):
+    def compile_subroutine_dec(self) -> None:
         """compile a jack class subroutine declarations
         ASSUME: only called if current token's value is constructor, function or method
         """
@@ -317,7 +319,7 @@ class CompilationEngine:
 
         # </subroutineDec>
 
-    def compile_parameter_list(self):
+    def compile_parameter_list(self) -> None:
         """compile a jack parameter list which is 0 or more list
         """
         # <parameterList>
@@ -330,7 +332,7 @@ class CompilationEngine:
             self.symbol_table.define(name=name, _type=_type, kind=ARGUMENT)
             comma_before = True
 
-    def compile_var_dec(self):
+    def compile_var_dec(self) -> None:
         """compile jack variable declaration, varDec*, only called if current token is var
         add the variable to symbol table
         """
@@ -350,7 +352,7 @@ class CompilationEngine:
         self.eat(SEMI_COLON)
         # </varDec>
 
-    def compile_statements(self):
+    def compile_statements(self) -> None:
         """
         match the current token value to the matching jack statement
         """
@@ -367,7 +369,7 @@ class CompilationEngine:
 
         # </statements>
 
-    def compile_let_statement(self):
+    def compile_let_statement(self) -> None:
         """
         compile jack let statement
         """
@@ -409,7 +411,7 @@ class CompilationEngine:
 
         # <letStatement>
 
-    def compile_if_statement(self):
+    def compile_if_statement(self) -> None:
         """
         compile jack if statement
         """
@@ -744,16 +746,16 @@ class SymbolTable:
             kind == var.kind for var in self._sub_vars + self._class_vars
         )
 
-    def kind_of(self, var: str):
+    def kind_of(self, var: str) -> str:
         return self._get_var_property(var, 'kind')
 
-    def type_of(self, var: str):
+    def type_of(self, var: str) -> str:
         return self._get_var_property(var, 'type')
 
-    def index_of(self, var: str):
+    def index_of(self, var: str) -> int:
         return self._get_var_property(var, 'index')
 
-    def _get_var_property(self, var: str, _property: str):
+    def _get_var_property(self, var: str, _property: str) -> int | str:
         property_getter = attrgetter(_property)
         for sub_var in self._sub_vars:
             if var == sub_var.name:
